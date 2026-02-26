@@ -7,7 +7,7 @@ import os
 bind = f"0.0.0.0:{os.environ.get('PORT', '8000')}"
 
 # Worker processes
-workers = 4
+workers = 2
 worker_class = "uvicorn.workers.UvicornWorker"
 worker_connections = 1000
 
