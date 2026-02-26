@@ -162,14 +162,15 @@ def get_documents(
     """
     container = _get_blob_container_client()
 
-    # --- manifest 로드 ---
+    # --- manifest 로드 (Blob 우선, 실패 시 로컬 폴백) ---
+    data = None
     if container is not None:
         try:
             blob = container.get_blob_client("manifest.json")
             data = json.loads(blob.download_blob().readall().decode("utf-8"))
         except Exception:
-            data = {"documents": []}
-    else:
+            pass  # Blob 실패 시 아래 로컬 시도
+    if data is None:
         manifest_file = manifest_path_override or base_dir / "manifest.json"
         if not manifest_file.exists():
             return []
