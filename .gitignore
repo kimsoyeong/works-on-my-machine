@@ -36,3 +36,7 @@ ssl_certs/
 *.conf
 webapp-content/
 log.txt
+
+*.yml
+*.bin
+*.sqlite3
