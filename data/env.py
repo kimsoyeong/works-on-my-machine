@@ -20,6 +20,9 @@ except ModuleNotFoundError:
     )
     sys.exit(1)
 
+# works-on-my-machine/.env 또는 프로젝트 루트(agenthon)/.env 로드
 _root = Path(__file__).resolve().parent.parent
+_repo_root = _root.parent
 load_dotenv(_root / ".env")
+load_dotenv(_repo_root / ".env")
 load_dotenv(Path.cwd() / ".env")
