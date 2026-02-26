@@ -4,8 +4,12 @@ import os
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from copilot import CopilotClient
-from copilot.types import CopilotClientOptions
+try:
+    from copilot import CopilotClient
+    from copilot.types import CopilotClientOptions
+    _COPILOT_AVAILABLE = True
+except ImportError:
+    _COPILOT_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -29,13 +33,19 @@ class CopilotResponse(BaseModel):
 @router.post("/copilot", response_model=CopilotResponse)
 async def test_copilot(req: CopilotRequest):
     """GitHub Copilot SDK 실행 테스트."""
-    client_opts: CopilotClientOptions = {}
+    if not _COPILOT_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="GitHub Copilot SDK가 설치되어 있지 않습니다. (copilot 패키지 없음)",
+        )
+
+    client_opts = {}
     github_token = os.getenv("GITHUB_TOKEN")
     if github_token:
         client_opts["github_token"] = github_token
-        client_opts["use_logged_in_user"] = False  # CLI에 저장된 자격 증명 사용 안 함
+        client_opts["use_logged_in_user"] = False
 
-    client = CopilotClient(client_opts if client_opts else None)
+    client = CopilotClient(client_opts if client_opts else None)  # type: ignore[name-defined]
     try:
         await client.start()
         session = await client.create_session({"model": req.model})

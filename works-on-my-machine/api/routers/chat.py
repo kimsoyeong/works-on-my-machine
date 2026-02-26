@@ -4,10 +4,8 @@ import logging
 import os
 
 from fastapi import APIRouter, HTTPException
+from openai import AsyncAzureOpenAI
 from pydantic import BaseModel, Field
-
-from copilot import CopilotClient
-from copilot.types import CopilotClientOptions
 
 logger = logging.getLogger(__name__)
 
@@ -90,26 +88,30 @@ def _build_prompt(context: dict, history: list[dict], question: str) -> str:
 @router.post("/chat", response_model=ChatResponse)
 async def security_chat(req: ChatRequest):
     """분석 결과를 컨텍스트로 보안 질문에 답변합니다."""
-    client_opts: CopilotClientOptions = {}
-    github_token = os.getenv("GITHUB_TOKEN")
-    if github_token:
-        client_opts["github_token"] = github_token
-        client_opts["use_logged_in_user"] = False
+    endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT")
+    api_key = os.environ.get("AZURE_OPENAI_API_KEY")
+    deployment = (
+        os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME")
+        or os.environ.get("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME")
+    )
+    api_version = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
 
-    client = CopilotClient(client_opts if client_opts else None)
+    if not (endpoint and api_key and deployment):
+        raise HTTPException(status_code=503, detail="Azure OpenAI 환경변수가 설정되지 않았습니다.")
+
+    client = AsyncAzureOpenAI(
+        api_key=api_key,
+        api_version=api_version,
+        azure_endpoint=endpoint.rstrip("/"),
+    )
     try:
-        await client.start()
-        session = await client.create_session({"model": req.model})
         prompt = _build_prompt(req.context, req.history, req.question)
-        response = await session.send_and_wait({"prompt": prompt}, timeout=120.0)
-
-        content = None
-        if response and response.data:
-            content = response.data.content
-
+        resp = await client.chat.completions.create(
+            model=deployment,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        content = (resp.choices[0].message.content or "").strip()
         return ChatResponse(status="success", answer=content or "응답을 받지 못했습니다.")
     except Exception as e:
         logger.exception("Chat API 호출 실패")
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        await client.stop()
