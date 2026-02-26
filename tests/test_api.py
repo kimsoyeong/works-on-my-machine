@@ -32,7 +32,7 @@ async def test_analyze_success():
     # steps 확인
     step_names = [s["step"] for s in data["steps"]]
     assert "파일 업로드" in step_names
-    assert "RedTeam 분석" in step_names
+    assert "Recon 분석" in step_names
 
     # security 결과 확인
     security = data["security"]
