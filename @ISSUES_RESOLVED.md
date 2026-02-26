@@ -266,7 +266,137 @@ if isinstance(prerequisites, list):
 
 ---
 
-# 보고서 형식 개선: 설계 단계 보안 분석 도구로 재정의
+# PreFlight Agent 통합 및 UI 개선 (2026-02-26)
+
+## [FIX] PreFlight 통합 보고서 에이전트 구현
+
+**증상**: Policy 결과와 Recon 결과를 단순 병합하는 방식으로 보안 의미가 불분명한 보고서 생성  
+**원인**: 설계 의도 대비 재현 구조 분석 없이 취약점 목록만 나열  
+**해결**: `agents/preflight_agent.py` 신규 구현 (MAF `AzureOpenAIChatClient` 기반)
+
+- 6개 섹션 구조: Executive Summary → 원본 설계 의도 → 변환 구조 검토 → 보안 불일치 분석 → 잠재적 영향 → 배포 전 체크리스트 → Updated Bicep Code
+- 단정 표현 금지, 조건부 표현 사용 (`If deployed without...`, `This may increase exposure to...`)
+- `SecurityResult` 모델 변경: `{vulnerabilities[], attack_scenarios[], report}` → `{final_report, vulnerability_summary: int, severity_counts: dict, verification_checklist: list}`
+
+---
+
+## [FIX] `_run_policy() takes 1 positional argument but 2 were given`
+
+**증상**: `POST /api/v1/analyze` 호출 시 500 오류  
+**원인**: `skip_policy` 파라미터 제거 후 호출부에서 `_run_policy(bicep_code, False)` 잔존  
+**해결**: `api/routers/analyze.py`에서 `_run_policy(bicep_code, False)` → `_run_policy(bicep_code)` 수정
+
+---
+
+## [FIX] `skip_policy` 모드 및 `zero-tools` docstring 제거
+
+**증상**: 사용하지 않는 `skip_policy: bool` Form 파라미터와 관련 docstring이 API에 노출  
+**해결**:
+- `analyze_architecture()` 함수 시그니처에서 `skip_policy: bool = Form(False)` 제거
+- `_run_policy()` 함수 시그니처 단순화
+- docstring에서 `zero-tools` 모드 관련 설명 제거
+
+---
+
+## [FIX] `AnalyzeResponse`에서 `policy_result` 노출 제거
+
+**증상**: API 응답에 내부 Policy Agent 원본 결과가 그대로 노출  
+**해결**: `api/models/response.py`의 `AnalyzeResponse`에서 `policy: PolicyResult | None` 필드 제거  
+**주의**: `PolicyResult` 클래스 자체는 `_run_policy()` 반환 타입으로 여전히 사용 중 → import 유지
+
+---
+
+## [FIX] Frontend 파이프라인에서 Preprocess 단계 제거
+
+**증상**: `PipelineBar.tsx`에 존재하지 않는 `파일 전처리` 단계가 표시됨  
+**해결**:
+- `STEPS` 배열에서 `preprocessing` 노드 제거 (5노드 → 4노드 레이아웃)
+- `stepMap`에서 `preprocessing`/`파일 전처리` 매핑 제거
+- `redteam` 매핑 수정: `'RedTeam 분석'` → `'Recon 분석'` (백엔드 step명과 일치)
+- SVG 좌표 및 연결선 재배치
+
+---
+
+## [FIX] 마지막 파이프라인 단계명 `Result` → `Reporting` 변경
+
+**해결**: `PipelineBar.tsx` `STEPS` 배열에서 마지막 노드 label 수정
+
+---
+
+## [FIX] Policy 노드 색상 변경
+
+**해결**: `PipelineBar.tsx`에서 Policy 노드 색상 `#8b5cf6` (보라) → `#f97316` (주황)
+
+---
+
+## [FIX] 앱 타이틀 변경
+
+**해결**: `App.tsx`에서 `🛡️ Azure Security Analyzer` → `🔍 PreFlight`
+
+---
+
+## [FIX] `ResultSummary.tsx` - `Cannot read properties of undefined (reading 'length')`
+
+**증상**: 분석 결과 렌더링 시 런타임 에러  
+**원인**: `SecurityResult` 구조 변경 후 `security.vulnerabilities.length` 참조 잔존  
+**해결**: `ResultSummary.tsx` 전면 재작성
+
+- `security.severity_counts` (Critical/High/Medium/Low) 카드 표시
+- `security.vulnerability_summary` (총 취약점 수) 표시
+- Optional chaining으로 undefined 안전 처리
+
+---
+
+## [FIX] `ResultSummary.tsx` - `'return' outside of function` 파싱 오류
+
+**증상**: Vite pre-transform 오류로 개발 서버 동작 불가  
+**원인**: edit 과정에서 old_str 범위 미스로 기존 코드 잔존 + 새 코드 중복 삽입  
+**해결**: 중복된 trailing 코드 제거
+
+---
+
+## [FIX] Security Report 렌더링 안 됨
+
+**증상**: 분석 결과 탭에서 보안 보고서가 표시되지 않음  
+**원인**: `ResultTabs.tsx`, `DetailModal.tsx`에서 `security?.report` 참조 유지  
+**해결**: 두 파일 모두 `security?.report` → `security?.final_report` 수정
+
+---
+
+## [FIX] `api.ts` TypeScript 타입 불일치
+
+**증상**: Frontend 빌드 타입 에러  
+**원인**: `SecurityResult` 인터페이스가 백엔드 모델 변경 전 구조 유지  
+**해결**: `frontend/src/types/api.ts`의 `SecurityResult` 인터페이스 업데이트
+
+```typescript
+// Before
+interface SecurityResult {
+  vulnerabilities: VulnerabilityItem[];
+  attack_scenarios: AttackScenarioItem[];
+  vulnerability_summary: Record<string, number>;
+  report: string;
+}
+
+// After
+interface SecurityResult {
+  final_report: string;
+  vulnerability_summary: number;
+  severity_counts: Record<string, number>;
+  verification_checklist: string[];
+}
+```
+
+---
+
+## [IMPROVE] PreFlight 보고서 구조 개선
+
+**변경**: Executive Summary에 주요 발견 항목 명시 및 Updated Bicep Code 섹션 추가
+
+- Executive Summary: 숫자만 표시하던 테이블에 실제 취약점 제목 컬럼 추가
+- Policy 위반 요약 테이블 추가 (규칙 ID, 심각도, 위반 내용)
+- 섹션 6 신규: 🔧 Updated Bicep Code — 발견된 이슈를 반영한 개선 Bicep 코드 제시
+- `max_tokens` 4096 → 6000으로 증가
 
 ## 핵심 변경사항
 
