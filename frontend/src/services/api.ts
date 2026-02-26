@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { AnalyzeResponse, ChatRequest, ChatResponse } from '@/types/api';
+import type { AnalyzeResponse } from '@/types/api';
 
 const API_BASE = '/api/v1';
 
@@ -29,10 +29,5 @@ export const analyzeFile = async (
     },
   });
 
-  return data;
-};
-
-export const chatWithAI = async (request: ChatRequest): Promise<ChatResponse> => {
-  const { data } = await api.post<ChatResponse>('/chat', request);
   return data;
 };

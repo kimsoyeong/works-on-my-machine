@@ -12,7 +12,7 @@ export function ResultTabs() {
     return null;
   }
 
-  const report = analysisResult.security?.report || '';
+  const report = analysisResult.security?.final_report || '';
 
   return (
     <motion.div

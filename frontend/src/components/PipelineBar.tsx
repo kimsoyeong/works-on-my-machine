@@ -5,20 +5,18 @@ import type { StepStatus } from '@/types/api';
 
 const STEPS = [
   { id: 'upload', label: 'Upload', x: 80, y: 80, color: '#3b82f6' },
-  { id: 'preprocessing', label: 'Preprocess', x: 240, y: 80, color: '#3b82f6' },
-  { id: 'bicep', label: 'BiCep', x: 400, y: 80, color: '#3b82f6' },
-  { id: 'policy', label: 'Policy', x: 560, y: 40, color: '#8b5cf6' },
-  { id: 'redteam', label: 'RedTeam', x: 560, y: 120, color: '#10b981' },
-  { id: 'result', label: 'Result', x: 720, y: 80, color: '#f59e0b' },
+  { id: 'bicep', label: 'BiCep', x: 280, y: 80, color: '#3b82f6' },
+  { id: 'policy', label: 'Policy', x: 480, y: 40, color: '#f97316' },
+  { id: 'redteam', label: 'RedTeam', x: 480, y: 120, color: '#10b981' },
+  { id: 'result', label: 'Reporting', x: 680, y: 80, color: '#f59e0b' },
 ];
 
 const getStepStatus = (stepId: string, steps: StepStatus[]): StepStatus['status'] => {
   const stepMap: Record<string, string> = {
     upload: '파일 업로드',
-    preprocessing: '파일 전처리',
     bicep: 'BiCep 변환',
     policy: 'Policy 검증',
-    redteam: 'RedTeam 분석',
+    redteam: 'Recon 분석',
     result: '결과 종합',
   };
 
@@ -83,9 +81,9 @@ export function PipelineBar() {
           </defs>
 
           {/* Connection lines */}
-          {/* Upload → Preprocess */}
+          {/* Upload → BiCep */}
           <motion.line
-            x1="120" y1="80" x2="200" y2="80"
+            x1="120" y1="80" x2="240" y2="80"
             stroke={getStepStatus('upload', steps) === 'completed' ? '#1f2937' : '#d1d5db'}
             strokeWidth="2"
             markerEnd={getStepStatus('upload', steps) === 'completed' ? 'url(#arrowhead-active)' : 'url(#arrowhead)'}
@@ -94,63 +92,52 @@ export function PipelineBar() {
             transition={{ duration: 0.5 }}
           />
 
-          {/* Preprocess → BiCep */}
-          <motion.line
-            x1="280" y1="80" x2="360" y2="80"
-            stroke={getStepStatus('preprocessing', steps) === 'completed' ? '#1f2937' : '#d1d5db'}
+          {/* BiCep → Policy (upper branch) */}
+          <motion.path
+            d="M 320 80 L 360 80 L 440 40"
+            stroke={getStepStatus('bicep', steps) === 'completed' ? '#1f2937' : '#d1d5db'}
             strokeWidth="2"
-            markerEnd={getStepStatus('preprocessing', steps) === 'completed' ? 'url(#arrowhead-active)' : 'url(#arrowhead)'}
+            fill="none"
+            markerEnd={getStepStatus('bicep', steps) === 'completed' ? 'url(#arrowhead-active)' : 'url(#arrowhead)'}
             initial={{ pathLength: 0 }}
             animate={{ pathLength: 1 }}
             transition={{ duration: 0.5, delay: 0.1 }}
           />
 
-          {/* BiCep → Policy (upper branch) */}
-          <motion.path
-            d="M 440 80 L 480 80 L 520 40"
-            stroke={getStepStatus('bicep', steps) === 'completed' ? '#1f2937' : '#d1d5db'}
-            strokeWidth="2"
-            fill="none"
-            markerEnd={getStepStatus('bicep', steps) === 'completed' ? 'url(#arrowhead-active)' : 'url(#arrowhead)'}
-            initial={{ pathLength: 0 }}
-            animate={{ pathLength: 1 }}
-            transition={{ duration: 0.5, delay: 0.2 }}
-          />
-
           {/* BiCep → RedTeam (lower branch) */}
           <motion.path
-            d="M 440 80 L 480 80 L 520 120"
+            d="M 320 80 L 360 80 L 440 120"
             stroke={getStepStatus('bicep', steps) === 'completed' ? '#1f2937' : '#d1d5db'}
             strokeWidth="2"
             fill="none"
             markerEnd={getStepStatus('bicep', steps) === 'completed' ? 'url(#arrowhead-active)' : 'url(#arrowhead)'}
             initial={{ pathLength: 0 }}
             animate={{ pathLength: 1 }}
-            transition={{ duration: 0.5, delay: 0.2 }}
+            transition={{ duration: 0.5, delay: 0.1 }}
           />
 
           {/* Policy → Result (merge upper) */}
           <motion.path
-            d="M 600 40 L 640 40 L 680 80"
+            d="M 520 40 L 560 40 L 640 80"
             stroke={getStepStatus('policy', steps) === 'completed' ? '#1f2937' : '#d1d5db'}
             strokeWidth="2"
             fill="none"
             markerEnd={getStepStatus('policy', steps) === 'completed' ? 'url(#arrowhead-active)' : 'url(#arrowhead)'}
             initial={{ pathLength: 0 }}
             animate={{ pathLength: 1 }}
-            transition={{ duration: 0.5, delay: 0.3 }}
+            transition={{ duration: 0.5, delay: 0.2 }}
           />
 
           {/* RedTeam → Result (merge lower) */}
           <motion.path
-            d="M 600 120 L 640 120 L 680 80"
+            d="M 520 120 L 560 120 L 640 80"
             stroke={getStepStatus('redteam', steps) === 'completed' ? '#1f2937' : '#d1d5db'}
             strokeWidth="2"
             fill="none"
             markerEnd={getStepStatus('redteam', steps) === 'completed' ? 'url(#arrowhead-active)' : 'url(#arrowhead)'}
             initial={{ pathLength: 0 }}
             animate={{ pathLength: 1 }}
-            transition={{ duration: 0.5, delay: 0.3 }}
+            transition={{ duration: 0.5, delay: 0.2 }}
           />
 
           {/* Step nodes */}

@@ -48,38 +48,17 @@ export interface PolicyResult {
 }
 
 export interface SecurityResult {
-  vulnerabilities: VulnerabilityItem[];
-  attack_scenarios: AttackScenarioItem[];
-  vulnerability_summary: Record<string, number>;
-  report: string;
+  final_report: string;
+  vulnerability_summary: number;
+  severity_counts: Record<string, number>;
+  verification_checklist: string[];
 }
 
 export interface AnalyzeResponse {
   status: 'success' | 'error';
   task_id: string;
   steps: StepStatus[];
-  policy?: PolicyResult;
   security?: SecurityResult;
   error?: string;
 }
 
-export interface ChatMessage {
-  role: 'user' | 'assistant';
-  content: string;
-}
-
-export interface ChatRequest {
-  question: string;
-  context: {
-    security?: SecurityResult;
-    policy?: PolicyResult;
-  };
-  history: ChatMessage[];
-  model?: string;
-}
-
-export interface ChatResponse {
-  status: string;
-  answer?: string;
-  error?: string;
-}

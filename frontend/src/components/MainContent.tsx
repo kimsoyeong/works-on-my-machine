@@ -4,8 +4,6 @@ import { UploadCard } from './UploadCard';
 import { PipelineBar } from './PipelineBar';
 import { ResultSummary } from './ResultSummary';
 import { ResultTabs } from './ResultTabs';
-import { ChatPanel } from './ChatPanel';
-import { MessageCircle } from 'lucide-react';
 import { analyzeFile } from '@/services/api';
 
 export function MainContent() {
@@ -13,8 +11,6 @@ export function MainContent() {
     analysisState,
     uploadedFile,
     skipPolicy,
-    isChatOpen,
-    toggleChat,
     setAnalysisState,
     setAnalysisResult,
     setError,
@@ -65,7 +61,7 @@ export function MainContent() {
 
       {/* Main Content Area */}
       <div className="flex gap-8 min-h-[calc(100vh-250px)]">
-        {/* Left side - Results */}
+        {/* Results */}
         <AnimatePresence>
           {showResults && (
             <motion.div
@@ -77,13 +73,6 @@ export function MainContent() {
               <ResultSummary />
               <ResultTabs />
             </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Right side - Chat Panel */}
-        <AnimatePresence>
-          {showResults && isChatOpen && (
-            <ChatPanel open={isChatOpen} onClose={toggleChat} />
           )}
         </AnimatePresence>
 
@@ -150,24 +139,6 @@ export function MainContent() {
           </div>
         )}
       </div>
-
-      {/* FAB - AI Advisor */}
-      <AnimatePresence>
-        {showResults && !isChatOpen && (
-          <motion.button
-            initial={{ scale: 0, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0, opacity: 0 }}
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={toggleChat}
-            className="fixed bottom-8 right-8 w-16 h-16 rounded-full bg-gray-900 text-white shadow-lg hover:shadow-xl flex items-center justify-center z-40"
-            title="AI Security Advisor"
-          >
-            <MessageCircle className="w-8 h-8" />
-          </motion.button>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

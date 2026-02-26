@@ -9,12 +9,12 @@ export function ResultSummary() {
   }
 
   const { security } = analysisResult;
-  const summary = security.vulnerability_summary || {};
+  const counts = security.severity_counts || {};
 
   const metrics = [
     {
       label: 'Total',
-      value: security.vulnerabilities.length,
+      value: security.vulnerability_summary,
       icon: '📊',
       bgColor: 'bg-slate-100',
       borderColor: 'border-slate-200',
@@ -22,7 +22,7 @@ export function ResultSummary() {
     },
     {
       label: 'Critical',
-      value: summary.Critical || 0,
+      value: counts.Critical || 0,
       icon: '🔴',
       bgColor: 'bg-white',
       borderColor: 'border-gray-200',
@@ -30,7 +30,7 @@ export function ResultSummary() {
     },
     {
       label: 'High',
-      value: summary.High || 0,
+      value: counts.High || 0,
       icon: '🔶',
       bgColor: 'bg-white',
       borderColor: 'border-gray-200',
@@ -38,7 +38,7 @@ export function ResultSummary() {
     },
     {
       label: 'Medium',
-      value: summary.Medium || 0,
+      value: counts.Medium || 0,
       icon: '🔷',
       bgColor: 'bg-white',
       borderColor: 'border-gray-200',
@@ -46,7 +46,7 @@ export function ResultSummary() {
     },
     {
       label: 'Low',
-      value: summary.Low || 0,
+      value: counts.Low || 0,
       icon: '🟢',
       bgColor: 'bg-white',
       borderColor: 'border-gray-200',

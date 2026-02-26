@@ -185,7 +185,7 @@ export function DetailModal({ type, open, onClose }: DetailModalProps) {
         );
 
       case 'report':
-        const report = analysisResult.security?.report || '';
+        const report = analysisResult.security?.final_report || '';
         return (
           <div className="space-y-4">
             <Button
