@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import Optional, Literal
 
 from agents.agent import AnalysisResult, VulnerabilityItem, AttackScenario
-from agents.new_agent import convert_and_attack as zero_tools_convert_and_attack
 from agents.new_agent_with_tools import convert_bicep_to_compose as with_tools_convert
 
 logger = logging.getLogger(__name__)
@@ -112,8 +111,8 @@ def parse_json_to_analysis_result(json_data: dict, bicep_code: str) -> AnalysisR
     # Report는 Markdown 파일에서 읽기
     report = ""
     try:
-        if Path("red_team_security_report.md").exists():
-            report = Path("red_team_security_report.md").read_text()
+        if Path("recon_security_report.md").exists():
+            report = Path("recon_security_report.md").read_text()
     except Exception as e:
         logger.warning(f"Failed to read markdown report: {e}")
     
@@ -257,7 +256,7 @@ async def analyze_bicep(bicep_code: str, agent_mode: AgentMode = "with-tools") -
             logger.warning(f"⚠️ security_analysis.json not found at {json_file}, falling back to markdown")
         
         # 5. Fallback: Markdown 파싱
-        md_file = project_root / "red_team_security_report.md"
+        md_file = project_root / "recon_security_report.md"
         result = parse_markdown_report(md_file, bicep_code)
         
         # Markdown 파일 정리

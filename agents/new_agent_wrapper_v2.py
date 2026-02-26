@@ -19,7 +19,6 @@ from typing import Optional, Literal
 from contextlib import redirect_stdout
 
 from agents.agent import AnalysisResult, VulnerabilityItem, AttackScenario
-from agents.new_agent import convert_and_attack as zero_tools_convert_and_attack
 from agents.new_agent_with_tools import convert_bicep_to_compose as with_tools_convert
 
 # 로깅 설정
@@ -181,11 +180,8 @@ async def analyze_bicep(
     """
     logger.info(f"🔄 Starting new_agent wrapper V2 (mode: {agent_mode})")
     
-    # Agent 선택
-    convert_func = (
-        zero_tools_convert_and_attack if agent_mode == "zero-tools"
-        else with_tools_convert
-    )
+    # Agent 선택 (zero-tools 모드는 with-tools로 처리)
+    convert_func = with_tools_convert
     
     # 임시 디렉토리 생성
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -257,7 +253,7 @@ async def analyze_bicep(
         # 5. Fallback: Markdown 파싱
         logger.info("⚠️ Falling back to Markdown parsing...")
         project_root = Path(__file__).parent.parent
-        md_file = project_root / "red_team_security_report.md"
+        md_file = project_root / "recon_security_report.md"
         result = parse_markdown_report(md_file, bicep_code)
         
         # Markdown 파일 정리

@@ -1,5 +1,5 @@
 """
-Zero-Tools Bicep to Docker Compose Converter + Red Team Attack Agent
+Zero-Tools Bicep to Docker Compose Converter + Recon Attack Agent
 
 이 Agent는 도구 함수 없이(tools=[]) 모든 작업을 수행합니다.
 프롬프트에 모든 정보를 제공하여 Agent가 직접 bash 명령어로 작업합니다.
@@ -19,7 +19,7 @@ logging.basicConfig(
 # Agent Instructions (모든 정보 포함)
 # ============================================================
 
-AGENT_INSTRUCTIONS = """You are a Bicep to Docker Compose converter AND Red Team penetration tester. 
+AGENT_INSTRUCTIONS = """You are a Bicep to Docker Compose converter AND Recon penetration tester. 
 Your job is to convert Azure Bicep files to Docker Compose format, deploy containers, and perform security testing.
 
 **IMPORTANT**: You have NO tool functions. You must use bash commands directly for EVERYTHING.
@@ -116,7 +116,7 @@ docker-compose -f <output_file> ps
 docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"
 ```
 
-## Phase 2: Red Team Security Testing
+## Phase 2: Recon Security Testing
 
 ### Step 8: Get Container Information
 ```bash
@@ -560,7 +560,7 @@ Low │ [LOW-위험]  │ [MED-위험]      │
 ---
 
 ## 📝 분석 메타데이터
-- **분석 도구**: Red Team Security Architecture Analyzer
+- **분석 도구**: Recon Security Architecture Analyzer
 - **분석 모드**: [Zero-Tools / With-Tools]
 - **Bicep 파일**: [파일명]
 - **생성 시각**: [타임스탬프]
@@ -599,7 +599,7 @@ async def convert_and_attack(
     )
 
     async with agent:
-        prompt = f"""Please convert the Bicep file at '{bicep_file_path}' to Docker Compose, deploy it, and perform Red Team security testing.
+        prompt = f"""Please convert the Bicep file at '{bicep_file_path}' to Docker Compose, deploy it, and perform Recon security testing.
 Save the Docker Compose output to '{output_path}'.
 
 You have NO tool functions. You must use bash commands directly for EVERYTHING.
@@ -614,7 +614,7 @@ Follow ALL these tasks:
 5. Deploy containers using `docker-compose -f {output_path} up -d`
 6. Verify deployment using `docker-compose ps` and `docker ps`
 
-## Phase 2: Red Team Attack
+## Phase 2: Recon Attack
 7. Get container information
 8. For EACH container, perform appropriate security tests based on its image type
 9. Document all findings
@@ -655,7 +655,7 @@ cat > security_analysis.json << 'EOF'
 EOF
 ```
 
-11. Generate red_team_security_report.md as usual
+11. Generate recon_security_report.md as usual
 
 REMEMBER: You must do EVERYTHING using bash commands. No tool functions are available.
 The security_analysis.json file is CRITICAL - the API depends on it!
@@ -663,11 +663,15 @@ The security_analysis.json file is CRITICAL - the API depends on it!
 Start now and complete both phases!"""
 
         result = await agent.run(prompt)
-        print("\n" + "=" * 80)
-        print("ZERO-TOOLS AGENT RESULT:")
-        print("=" * 80)
-        print(result)
-        print("=" * 80)
+        # print("\n" + "=" * 80)
+        # print("ZERO-TOOLS AGENT RESULT:")
+        # print("=" * 80)
+        # print(result)
+        # print("=" * 80)
+
+        print(
+            "\n✅ Agent execution completed. Please check 'security_analysis.json' for results."
+        )
 
         return result
 

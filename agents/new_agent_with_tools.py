@@ -763,7 +763,7 @@ async def convert_bicep_to_compose(
     bicep_file_path: str, output_path: str = "docker-compose.yml"
 ):
     """
-    Bicep 파일을 Docker Compose로 변환하고 Red Team 공격을 수행하는 메인 함수
+    Bicep 파일을 Docker Compose로 변환하고 Recon 공격을 수행하는 메인 함수
 
     Args:
         bicep_file_path: 변환할 Bicep 파일 경로
@@ -832,11 +832,13 @@ Do NOT output text outside JSON.
 """
 
         result = await agent.run(prompt)
-        print("\n" + "=" * 80)
-        print("AGENT RESULT:")
-        print("=" * 80)
-        print(result)
-        print("=" * 80)
+        # print("\n" + "=" * 80)
+        # print("AGENT RESULT:")
+        # print("=" * 80)
+        # print(result)
+        # print("=" * 80)
+
+        print("\n✅ Agent execution completed. Please check the output for results.")
 
         return result
 
