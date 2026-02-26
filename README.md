@@ -136,6 +136,9 @@ pip install -r requirements.txt --pre
 # API 서버
 uvicorn api.main:app --reload
 
+# 오류 발생 시,
+# {가상환경명}/bin/activate api.main:app --reload
+
 # React 프론트엔드
 cd frontend && npm install && npm run dev
 ```
