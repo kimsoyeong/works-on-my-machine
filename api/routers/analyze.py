@@ -5,24 +5,22 @@ import uuid
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
-from agents.mock_agents import mock_policy_agent
+from agents.policy_agent import review_bicep_only
 from agents.new_agent_wrapper_v2 import analyze_bicep  # V2: stdout에서 JSON 추출
+from agents.preflight_agent import generate_preflight_report
 from api.models.response import (
     AnalyzeResponse,
-    AttackScenarioItem,
     PolicyResult,
     SecurityResult,
     StepStatus,
-    VulnerabilityItem,
 )
-from api.common.mock_services.bicep_transformer import mock_bicep_transform
-from api.common.mock_services.file_processor import mock_file_preprocessing
+from api.common.services.bicep_transformer import transform_image_to_bicep
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".bicep"}  # Bicep 추가
+ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg"}
 MAX_FILE_SIZE = 20 * 1024 * 1024  # 20MB
 
 
@@ -40,22 +38,45 @@ def _validate_file(filename: str, size: int) -> None:
         )
 
 
-async def _run_policy(
-    bicep_code: str, skip: bool
-) -> tuple[PolicyResult | None, StepStatus]:
-    if skip:
-        return None, StepStatus(
-            step="Policy 검증", status="completed", message="건너뜀"
-        )
-    raw = await mock_policy_agent(bicep_code)
-    return PolicyResult(**raw), StepStatus(
-        step="Policy 검증", status="completed", message=raw["summary"]
+def _norm(v: dict) -> dict:
+    return {
+        "rule": v.get("rule") or v.get("rule_id") or "-",
+        "severity": (v.get("severity") or "medium").lower(),
+        "message": v.get("message") or "",
+        "recommendation": v.get("recommendation") or "",
+    }
+
+
+async def _run_policy(bicep_code: str) -> tuple[PolicyResult | None, StepStatus]:
+    raw = await review_bicep_only(bicep_code)
+    api_status = (
+        "passed"
+        if (raw.get("status") == "normal" and not (raw.get("violations") or []))
+        else "failed"
     )
+    violations_ui = [_norm(v) for v in (raw.get("violations") or [])]
+    recommendations_ui = [_norm(r) for r in (raw.get("recommendations") or [])]
+    policy_result = PolicyResult(
+        status=api_status,
+        result_message=raw.get("result_message", ""),
+        total_checks=raw.get("total_checks", 0),
+        violations=violations_ui,
+        recommendations=recommendations_ui,
+        summary=raw.get("summary", ""),
+    )
+    if raw.get("status") == "error":
+        step = StepStatus(
+            step="Policy 검증", status="error", message=raw.get("error", "검증 실패")
+        )
+    else:
+        msg = raw.get("result_message") or raw.get("summary", "")
+        step = StepStatus(step="Policy 검증", status="completed", message=msg)
+    return policy_result, step
 
 
-async def _run_redteam(bicep_code: str, agent_mode: str = "with-tools"):
+async def _run_recon(bicep_code: str, agent_mode: str = "with-tools"):
     """
-    Agent를 사용하여 Red Team 분석 수행
+    Agent를 사용하여 Recon 분석 수행
 
     Args:
         bicep_code: Bicep 코드
@@ -71,7 +92,7 @@ async def _run_redteam(bicep_code: str, agent_mode: str = "with-tools"):
     )
 
     return result, StepStatus(
-        step="RedTeam 분석",
+        step="Recon 분석",
         status="completed",
         message=f"취약점 {vuln_count}개, 공격 시나리오 {attack_count}개 ({agent_mode})",
     )
@@ -80,7 +101,6 @@ async def _run_redteam(bicep_code: str, agent_mode: str = "with-tools"):
 @router.post("/analyze", response_model=AnalyzeResponse)
 async def analyze_architecture(
     file: UploadFile = File(...),
-    skip_policy: bool = Form(default=False),
     agent_mode: str = Form(default="with-tools"),
 ):
     """
@@ -88,15 +108,13 @@ async def analyze_architecture(
 
     파이프라인:
     1. 파일 검증
-    2. 파일 전처리 (Mock) → BiCep 변환 (Mock)
-    3. Policy 검증 & RedTeam 분석 (병렬)
+    2. 파일 전처리 → BiCep 변환
+    3. Policy 검증 & Recon 분석 (병렬)
+    4. PreFlight 통합 보고서 생성 (설계 의도 대비 재현 구조 분석)
 
     Args:
         file: 아키텍처 파일 (PDF/PNG/JPG)
-        skip_policy: Policy 검증 건너뛰기
-        agent_mode: Agent 실행 모드
-            - "with-tools": 빠른 분석 (10-30초, 권장)
-            - "zero-tools": 자율 분석 (3-5분, 창의적)
+        agent_mode: Agent 실행 모드 ("with-tools" 권장)
     """
     task_id = uuid.uuid4().hex[:12]
     steps: list[StepStatus] = []
@@ -113,11 +131,8 @@ async def analyze_architecture(
             )
         )
 
-        # --- Step 2: 전처리 + BiCep 변환 (순차) ---
-        await mock_file_preprocessing(content, file.filename)
-        steps.append(StepStatus(step="파일 전처리", status="completed"))
-
-        bicep_code = await mock_bicep_transform(content, file.filename)
+        # --- Step 2: BiCep 변환 ---
+        bicep_code = await transform_image_to_bicep(content, file.filename)
         steps.append(
             StepStatus(
                 step="BiCep 변환",
@@ -126,49 +141,63 @@ async def analyze_architecture(
             )
         )
 
-        # --- Step 3+4: Policy 검증 & RedTeam 분석 (병렬) ---
-        (policy_result, policy_step), (result, redteam_step) = await asyncio.gather(
-            _run_policy(bicep_code, skip_policy),
-            _run_redteam(bicep_code, agent_mode),
+        # --- Step 3+4: Policy 검증 & Recon 분석 (병렬) ---
+        (policy_result, policy_step), (result, recon_step) = await asyncio.gather(
+            _run_policy(bicep_code),
+            _run_recon(bicep_code, agent_mode),
         )
         steps.append(policy_step)
-        steps.append(redteam_step)
+        steps.append(recon_step)
 
-        security = SecurityResult(
-            vulnerabilities=[
-                VulnerabilityItem(
-                    id=v.id,
-                    severity=v.severity,
-                    category=v.category,
-                    affected_resource=v.affected_resource,
-                    title=v.title,
-                    description=v.description,
-                    evidence=v.evidence,
-                    remediation=v.remediation,
-                    benchmark_ref=v.benchmark_ref,
-                )
-                for v in result.vulnerabilities
-            ],
-            attack_scenarios=[
-                AttackScenarioItem(
-                    id=a.id,
-                    name=a.name,
-                    mitre_technique=a.mitre_technique,
-                    target_vulnerabilities=a.target_vulnerabilities,
-                    severity=a.severity,
-                    prerequisites=a.prerequisites,
-                    attack_chain=a.attack_chain,
-                    expected_impact=a.expected_impact,
-                    detection_difficulty=a.detection_difficulty,
-                    likelihood=a.likelihood,
-                )
-                for a in result.attack_scenarios
-            ],
-            vulnerability_summary=result.vulnerability_count,
-            report=result.report,
+        # --- Step 5: PreFlight 통합 보고서 생성 ---
+        # Policy 결과 + Recon 결과를 "설계 의도 관점"에서 통합 해설 보고서로 생성.
+        # 단순 병합이 아니라 보안 통제의 유지/약화/제거 여부를 설계 수준에서 해설.
+        policy_violations = policy_result.violations if policy_result else []
+        policy_recommendations = policy_result.recommendations if policy_result else []
+        recon_vuln_dicts = [
+            {
+                "id": v.id,
+                "severity": v.severity,
+                "category": v.category,
+                "affected_resource": v.affected_resource,
+                "title": v.title,
+                "description": v.description,
+                "remediation": v.remediation,
+            }
+            for v in result.vulnerabilities
+        ]
+        # 보고서 생성
+        preflight = await generate_preflight_report(
+            bicep_code=bicep_code,
+            policy_violations=policy_violations,
+            policy_recommendations=policy_recommendations,
+            recon_vulnerabilities=recon_vuln_dicts,
+            recon_report=result.report,
+        )
+        steps.append(
+            StepStatus(
+                step="PreFlight 통합 보고서",
+                status="completed",
+                message=(
+                    f"취약점 {preflight['vulnerability_summary']}개 · "
+                    f"체크리스트 {len(preflight['verification_checklist'])}항목"
+                ),
+            )
         )
 
-        # --- Step 5: 결과 종합 ---
+        severity_counts: dict[str, int] = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0}
+        for v in recon_vuln_dicts:
+            sev = v.get("severity", "Medium")
+            severity_counts[sev] = severity_counts.get(sev, 0) + 1
+
+        security = SecurityResult(
+            final_report=preflight["final_report"],
+            vulnerability_summary=preflight["vulnerability_summary"],
+            severity_counts=severity_counts,
+            verification_checklist=preflight["verification_checklist"],
+        )
+
+        # --- Step 6: 결과 종합 ---
         vuln_count = len(result.vulnerabilities)
         attack_count = len(result.attack_scenarios)
         steps.append(
@@ -183,7 +212,6 @@ async def analyze_architecture(
             status="success",
             task_id=task_id,
             steps=steps,
-            policy=policy_result,
             security=security,
         )
 

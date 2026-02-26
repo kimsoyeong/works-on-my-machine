@@ -14,7 +14,7 @@ logging.basicConfig(
 )
 
 app = FastAPI(
-    title="Azure Security Analyzer",
+    title="PreFlight",
     description="Azure 아키텍처 보안 검증 에이전트 서비스",
     version="0.1.0",
 )
