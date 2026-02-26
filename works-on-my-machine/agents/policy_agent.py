@@ -6,7 +6,7 @@ Policy Agent: 설계(Bicep) 보안 검토
 처리: 사용자 Bicep 기준으로 CAT-006(필수) + 관련 카테고리 RAG 검색 → 사내 정책·참조 Bicep과 비교.
 결과: 정책 검증완료, 위반 N개, 권장 M개 등 검토 결과 반환.
 
-LLM: Azure AI Foundry (AzureOpenAIChatClient + as_agent). env: AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_DEPLOYMENT_NAME 또는 AZURE_OPENAI_CHAT_DEPLOYMENT, AZURE_OPENAI_API_KEY
+LLM: Azure OpenAI (AsyncAzureOpenAI). env: AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_DEPLOYMENT_NAME 또는 AZURE_OPENAI_CHAT_DEPLOYMENT, AZURE_OPENAI_API_KEY
 
 ---
 반환 형식 (review_bicep_only / handle_design_review 공통):
@@ -44,39 +44,41 @@ try:
 except ImportError:
     pass
 
-from agent_framework.azure import AzureOpenAIChatClient
-
 # ---------------------------------------------------------------------------
-# LLM: Azure AI Foundry
+# LLM: Azure OpenAI (AsyncAzureOpenAI 직접 사용)
 # ---------------------------------------------------------------------------
 
 async def _call_llm_json(system: str, user: str, model: str | None = None) -> dict | None:
-    """Azure AI Foundry agent로 system+user 보내고, 응답 텍스트에서 JSON 파싱해 반환."""
+    """Azure OpenAI chat completion 호출 후 응답 텍스트에서 JSON 파싱해 반환."""
+    from openai import AsyncAzureOpenAI
+
     endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT")
-    # 샘플: AZURE_OPENAI_DEPLOYMENT_NAME / agent_framework: AZURE_OPENAI_CHAT_DEPLOYMENT_NAME
     deployment_name = (
         os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME")
         or os.environ.get("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME")
         or os.environ.get("AZURE_OPENAI_CHAT_DEPLOYMENT")
     )
     api_key = os.getenv("AZURE_OPENAI_API_KEY")
+    api_version = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
     if not (endpoint and deployment_name and api_key):
         return None
 
-    client = AzureOpenAIChatClient(
-        endpoint=endpoint,
-        deployment_name=deployment_name,
+    client = AsyncAzureOpenAI(
         api_key=api_key,
-    )
-    agent = client.as_agent(
-        name="PolicyReviewAgent",
-        instructions=system,
+        api_version=api_version,
+        azure_endpoint=endpoint.rstrip("/"),
     )
     try:
-        result = await agent.run(user)
+        resp = await client.chat.completions.create(
+            model=model or deployment_name,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+        )
     except Exception as e:
         raise RuntimeError(f"LLM 호출 실패: {e!s}") from e
-    text = (result.text if hasattr(result, "text") else str(result)).strip()
+    text = (resp.choices[0].message.content or "").strip()
     for raw in (text, text.replace("```json", "").replace("```", "").strip()):
         try:
             return json.loads(raw)
@@ -292,45 +294,42 @@ async def handle_design_review(
         "데이터 스토리지 보안, API 호출 보안, 서버 접근 통제, 네트워크 보안 그룹, "
         "TLS 암호화, HTTPS 전용, 방화벽 규칙, NSG sourceAddressPrefix, Key Vault 네트워크 제한"
     )
-    data_dir = _get_data_dir()
-    index_path = data_dir / "vector_index.json"
     policy_chunks = ""
     source_documents: list[str] = []
-    if index_path.exists():
-        try:
-            # 카테고리별로 RAG 검색 후 병합 (CAT-006은 더 많이, 나머지는 보조)
-            merged: list[dict] = []
-            seen_ids: set[str] = set()
-            for cat_id in categories_to_use:
-                k_per_cat = 6 if cat_id == "CAT-006" else 3
-                # 현재 유효한 정책만 참고 (deprecated 제외)
-                results = search(
-                    policy_query,
-                    k=k_per_cat,
-                    index=None,
-                    metadata_filter={"collection": cat_id, "status": "active"},
+    try:
+        # 카테고리별로 RAG 검색 후 병합 (CAT-006은 더 많이, 나머지는 보조)
+        merged: list[dict] = []
+        seen_ids: set[str] = set()
+        for cat_id in categories_to_use:
+            k_per_cat = 6 if cat_id == "CAT-006" else 3
+            # 현재 유효한 정책만 참고 (deprecated 제외)
+            results = search(
+                policy_query,
+                k=k_per_cat,
+                index=None,
+                metadata_filter={"collection": cat_id, "status": "active"},
+            )
+            for r in results:
+                uid = r.get("id") or r.get("path") or ""
+                if uid and uid not in seen_ids:
+                    seen_ids.add(uid)
+                    merged.append(r)
+        # 유사도 순 정렬 후 상위만 사용
+        merged.sort(key=lambda x: x.get("score", 0), reverse=True)
+        if merged:
+            policy_chunks = "\n\n".join(
+                f"[정책 출처: {r.get('path', r.get('id'))}]\n{r.get('content', '')}" for r in merged[:15]
+            )
+            # RAG 참조 문서 목록 (UI 출처 표시용)
+            source_documents = list(
+                dict.fromkeys(
+                    (r.get("path") or r.get("id") or "").strip()
+                    for r in merged[:15]
+                    if (r.get("path") or r.get("id"))
                 )
-                for r in results:
-                    uid = r.get("id") or r.get("path") or ""
-                    if uid and uid not in seen_ids:
-                        seen_ids.add(uid)
-                        merged.append(r)
-            # 유사도 순 정렬 후 상위만 사용
-            merged.sort(key=lambda x: x.get("score", 0), reverse=True)
-            if merged:
-                policy_chunks = "\n\n".join(
-                    f"[정책 출처: {r.get('path', r.get('id'))}]\n{r.get('content', '')}" for r in merged[:15]
-                )
-                # RAG 참조 문서 목록 (UI 출처 표시용)
-                source_documents = list(
-                    dict.fromkeys(
-                        (r.get("path") or r.get("id") or "").strip()
-                        for r in merged[:15]
-                        if (r.get("path") or r.get("id"))
-                    )
-                )
-        except Exception as e:
-            return _err(f"정책 RAG 검색 실패: {e}")
+            )
+    except Exception as e:
+        return _err(f"정책 RAG 검색 실패: {e}")
 
     # 3) LLM으로 사용자 Bicep 검토: 위반/권장 (허용 rule_id만 사용, severity는 정책 데이터 기준)
     allowed_list = ", ".join(sorted(allowed_rule_ids)) if allowed_rule_ids else "(없음 - manifest.json에서 status=active 문서 확인)"

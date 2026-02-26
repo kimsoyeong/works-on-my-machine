@@ -143,7 +143,30 @@ def _chroma_metadata_flat(meta: dict) -> dict:
 
 
 def _get_chroma_client():
-    """Chroma PersistentClient 반환. 실패 시 None."""
+    """
+    Chroma 클라이언트 반환. 실패 시 None.
+    CHROMA_HOST 설정 시 원격 HTTP 클라이언트 사용 (Azure에 배포된 ChromaDB 서버).
+    미설정 시 로컬 PersistentClient 사용 (CHROMA_PATH 또는 data/chroma_db/).
+    """
+    chroma_host = os.environ.get("CHROMA_HOST")
+    if chroma_host:
+        try:
+            from chromadb import HttpClient
+            port = int(os.environ.get("CHROMA_PORT", "8000"))
+            token = os.environ.get("CHROMA_AUTH_TOKEN")
+            if token:
+                from chromadb.config import Settings
+                return HttpClient(
+                    host=chroma_host,
+                    port=port,
+                    settings=Settings(
+                        chroma_client_auth_provider="chromadb.auth.token.TokenAuthClientProvider",
+                        chroma_client_auth_credentials=token,
+                    ),
+                )
+            return HttpClient(host=chroma_host, port=port)
+        except Exception:
+            return None
     try:
         from chromadb import PersistentClient
         CHROMA_PATH.mkdir(parents=True, exist_ok=True)

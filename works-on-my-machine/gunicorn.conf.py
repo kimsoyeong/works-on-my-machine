@@ -1,7 +1,10 @@
 """Gunicorn 설정 파일."""
 
+import os
+
 # Server socket
-bind = "0.0.0.0:8000"
+# Azure App Service는 PORT 환경변수(기본 8080)를 통해 포트를 지정
+bind = f"0.0.0.0:{os.environ.get('PORT', '8000')}"
 
 # Worker processes
 workers = 4
