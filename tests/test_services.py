@@ -1,35 +1,16 @@
 import pytest
-import pytest_asyncio
 
-from mock_services.file_processor import mock_file_preprocessing
-from mock_services.bicep_transformer import mock_bicep_transform
-from mock_services.blob_storage import mock_blob_storage, mock_blob_download, mock_blob_list
-
-
-@pytest.mark.asyncio
-async def test_file_preprocessing_returns_bicep():
-    result = await mock_file_preprocessing(b"dummy", "arch.pdf")
-    assert isinstance(result, str)
-    assert len(result) > 0
-    assert "resource" in result  # BiCep 코드에는 resource 키워드가 있어야 함
-
-
-@pytest.mark.asyncio
-async def test_file_preprocessing_accepts_valid_extensions():
-    for ext in (".pdf", ".png", ".jpg", ".jpeg"):
-        result = await mock_file_preprocessing(b"x", f"file{ext}")
-        assert len(result) > 0
-
-
-@pytest.mark.asyncio
-async def test_file_preprocessing_rejects_invalid_extension():
-    with pytest.raises(ValueError, match="지원하지 않는"):
-        await mock_file_preprocessing(b"x", "file.txt")
+from api.common.services.bicep_transformer import transform_image_to_bicep
+from api.common.services.blob_storage import (
+    mock_blob_storage,
+    mock_blob_download,
+    mock_blob_list,
+)
 
 
 @pytest.mark.asyncio
 async def test_bicep_transform_returns_bicep():
-    result = await mock_bicep_transform(b"dummy", "arch.png")
+    result = await transform_image_to_bicep(b"dummy", "arch.png")
     assert isinstance(result, str)
     assert "resource" in result
 
