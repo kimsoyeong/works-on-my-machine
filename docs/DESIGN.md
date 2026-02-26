@@ -5,15 +5,12 @@
 ### 실제 구현
 
 1. **User Interface**
-   - Streamlit - 로컬 데모용 임시 구현 (완료)
-   - React.js - 프로덕션용 프론트엔드 (개발 예정, `frontend/` 디렉토리)
-2. **RedTeam Agent** - 전체 구현
+   - React.js - 프로덕션용 프론트엔드 (`frontend/` 디렉토리)
+2. **Recon Agent** - 전체 구현
 3. **API Layer (FastAPI + Gunicorn)** - 전체 구현
 
 ### Mock 구현 (추후 실제 전환)
 
-- 파일 전처리 (파싱, BiCep Transform)
-- Policy Agent
 - Azure Blob Storage 연동
 - 워크플로우 오케스트레이터
 
@@ -23,32 +20,31 @@
 
 ```mermaid
 flowchart TB
-    subgraph UI["1. User Interface (실제 구현)"]
-        UI1[파일 업로드<br/>PDF/PNG/JPG]
+    subgraph UI["1. User Interface (React)"]
+        UI1[파일 업로드<br/>PNG/JPG/PDF]
         UI2[진행 상태 시각화]
     end
 
-    subgraph Preprocessing["2. 파일 전처리 (Mock)"]
-        P1[파일 파싱<br/>큰 파일: 5페이지씩 증분]
-        P2[Azure Blob 저장<br/>버전 관리]
-        P3[BiCep Transform<br/>LLM 호출 → BiCep 코드 생성]
+    subgraph Processing["2. 변환"]
+        P1[파일 검증]
+        P3[BiCep Transform<br/>Vision LLM → BiCep 코드 생성]
     end
 
-    subgraph Agents["3. Agent 호출 (워크플로우)"]
-        A1[Policy Agent - Mock<br/>Azure Policy 준수 검증]
-        A2[RedTeam Agent - 실제 구현<br/>BiCep 분석 / 취약점 탐지<br/>공격 시뮬레이션 / 보고서 생성]
+    subgraph Agents["3. Agent 호출 (병렬)"]
+        A1[Policy Agent<br/>Azure Policy 준수 검증<br/>RAG + LLM 기반]
+        A2[Recon Agent<br/>BiCep 분석 / 취약점 탐지<br/>공격 시나리오 도출]
     end
 
-    subgraph Result["4. 결과 표시"]
-        R1[취약점 목록]
-        R2[공격 시나리오]
-        R3[보안 권장사항]
+    subgraph Report["4. PreFlight 통합 보고서"]
+        R1[설계 의도 요약]
+        R2[변환 구조 검토]
+        R3[보안 불일치 분석]
+        R4[배포 전 체크리스트]
     end
 
-    UI --> Preprocessing
-    Preprocessing --> Agents
-    A1 --> A2
-    Agents --> Result
+    UI --> Processing
+    Processing --> Agents
+    Agents --> Report
 ```
 
 ---
@@ -57,34 +53,38 @@ flowchart TB
 
 ### 1. User Interface
 
-**현재 구현 (Streamlit - 로컬 데모용):**
+**현재 구현 (React.js - `frontend/`):**
 
 - 파일 업로드 (PDF, PNG, JPG)
 - 5단계 파이프라인 시각화
 - 취약점 목록 및 보안 권장사항 표시
 - 마크다운 보고서 렌더링
-
-**향후 구현 (React.js - 프로덕션용):**
-
-- `frontend/` 디렉토리에 별도 프로젝트로 구현 예정
 - 기존 FastAPI 엔드포인트 (`/api/v1/*`) 사용
-- 상세 기술 스택 및 아키텍처는 [FRONTEND.md](FRONTEND.md) 참조 (예정)
 
-### 2. RedTeam Agent
+### 2. Recon Agent
 
 **핵심 기능:**
 
 1. **BiCep 코드 분석** - 리소스 구성 이해 및 관계 분석
 2. **취약점 탐지** - 보안 설정 오류, 네트워크 노출 위험, 인증/인가 검증, 암호화 누락
 3. **공격 시뮬레이션** - 잠재적 공격 벡터 도출, 취약점 악용 시나리오 작성
-4. **보고서 생성** - 심각도별 취약점 분류, 공격 시뮬레이션 결과, 보안 개선 권장사항 (마크다운)
+4. **결과 제공** - 심각도별 취약점 분류 및 JSON 출력
 
-### 3. API Layer
+### 3. PreFlight Agent
+
+**핵심 기능:**
+
+1. **설계 의도 분석** - 원본 Bicep에서 의도된 보안 설계 요약
+2. **변환 구조 검토** - Bicep → Docker Compose 등 변환 과정에서의 보안 통제 유지 여부
+3. **불일치 분석** - 네트워크 격리, 퍼블릭 노출, TLS 강제, 접근 제어 모델 변화 검토
+4. **보고서 생성** - Policy + Recon 결과 통합, 조건부 표현으로 위험 가능성 설명, 배포 전 체크리스트 제공
+
+### 4. API Layer
 
 **핵심 기능:**
 
 1. **파일 업로드 엔드포인트** - 파일 검증 (크기 20MB, 포맷), 비동기 처리
-2. **오케스트레이션** - 전처리 → Policy Agent → RedTeam Agent 순차 호출 및 결과 통합
+2. **오케스트레이션** - BiCep 변환 → Policy Agent & Recon Agent 병렬 호출 → PreFlight 통합 보고서 생성
 3. **상태 관리** - `GET /api/v1/status/{task_id}` 진행 상태 조회
 4. **에러 핸들링** - 표준화된 에러 응답 및 로깅
 
@@ -95,36 +95,31 @@ flowchart TB
 ```mermaid
 sequenceDiagram
     participant U as User (Browser)
-    participant S as Streamlit UI
+    participant R as React Frontend
     participant A as FastAPI
-    participant F as File Processor
     participant B as BiCep Transformer
     participant P as Policy Agent
-    participant R as RedTeam Agent
+    participant RC as Recon Agent
+    participant PF as PreFlight Agent
 
-    U->>S: 파일 업로드
-    S->>A: POST /api/v1/analyze
-    A->>F: 파일 전처리
-    F-->>A: 파싱 결과
-    A->>B: BiCep 변환
+    U->>R: 파일 업로드
+    R->>A: POST /api/v1/analyze
+    A->>B: BiCep 변환 (Vision LLM)
     B-->>A: BiCep 코드
-    A->>P: Policy 검증
-    P-->>A: 검증 결과
-    A->>R: RedTeam 분석
-    R-->>A: 취약점 보고서
-    A-->>S: 분석 결과
-    S-->>U: 결과 표시
+    A->>P: Policy 검증 (병렬)
+    A->>RC: Recon 분석 (병렬)
+    P-->>A: 정책 위반 결과
+    RC-->>A: 취약점 보고서
+    A->>PF: PreFlight 통합 보고서 생성
+    PF-->>A: 통합 보고서 (Markdown)
+    A-->>R: 분석 결과
+    R-->>U: 결과 표시
 ```
 
 ---
 
 ## Mock 서비스 명세
 
-Mock 서비스는 실제 구현 전환 전까지 정적 샘플 데이터를 반환합니다.
-
-| 서비스             | 현재 동작                           | 실제 구현 시                             |
+| 서비스             | 현재 동작                           | 비고                                     |
 | ------------------ | ----------------------------------- | ---------------------------------------- |
-| 파일 전처리        | 샘플 BiCep 코드 반환                | 파일 파싱 (5p 증분), Azure Blob 저장     |
-| BiCep Transform    | 샘플 BiCep 코드 반환                | LLM 호출하여 아키텍처 → BiCep 변환       |
-| Policy Agent       | 패턴 기반 정적 검증                 | MS Agent Framework + Azure Policy 연동   |
-| Blob Storage       | 인메모리 딕셔너리 저장              | Azure Blob Storage 연동                  |
+| Blob Storage       | 인메모리 딕셔너리 저장              | Azure Blob Storage 연동 예정             |

@@ -1,6 +1,6 @@
 # API 명세
 
-SecurityBlueprint Agent의 RESTful API 문서입니다.
+PreFlight의 RESTful API 문서입니다.
 
 ## 기본 정보
 
@@ -64,10 +64,9 @@ Content-Type: multipart/form-data
 
 **Parameters**
 
-| Name        | Type    | Required | Description                                  |
-| ----------- | ------- | -------- | -------------------------------------------- |
-| file        | File    | ✅       | 아키텍처 다이어그램 파일 (PDF, PNG, JPG)     |
-| skip_policy | boolean | ❌       | Policy 검증 건너뛰기 (기본값: false)         |
+| Name | Type | Required | Description                              |
+| ---- | ---- | -------- | ---------------------------------------- |
+| file | File | ✅       | 아키텍처 다이어그램 파일 (PDF, PNG, JPG) |
 
 **파일 제약사항**
 - 지원 포맷: `.pdf`, `.png`, `.jpg`, `.jpeg`
@@ -88,11 +87,6 @@ Content-Type: multipart/form-data
       "message": "architecture.png (2048576 bytes)"
     },
     {
-      "step": "파일 전처리",
-      "status": "completed",
-      "message": null
-    },
-    {
       "step": "BiCep 변환",
       "status": "completed",
       "message": "1024 chars"
@@ -103,76 +97,32 @@ Content-Type: multipart/form-data
       "message": "정책 검증 완료: 위반 2건"
     },
     {
-      "step": "RedTeam 분석",
+      "step": "Recon 분석",
       "status": "completed",
       "message": "취약점 5개"
     },
     {
-      "step": "결과 종합",
+      "step": "PreFlight 통합 보고서",
       "status": "completed",
-      "message": "취약점 5개 · 공격 3개"
+      "message": "보고서 생성 완료"
     }
   ],
-  "policy": {
-    "status": "failed",
-    "violations": [
-      {
-        "rule": "NSG-001",
-        "severity": "high",
-        "message": "Network Security Group이 0.0.0.0/0 (전체 인터넷)에서의 접근을 허용합니다.",
-        "recommendation": "소스 IP 범위를 필요한 최소 범위로 제한하세요."
-      }
-    ],
-    "recommendations": [
-      {
-        "rule": "NSG-002",
-        "severity": "medium",
-        "message": "SSH 포트(22)가 공개적으로 노출되어 있습니다.",
-        "recommendation": "SSH 접근을 특정 IP 또는 VPN을 통해서만 허용하도록 설정하세요."
-      }
-    ],
-    "summary": "정책 검증 완료: 위반 2건"
-  },
   "security": {
-    "vulnerabilities": [
-      {
-        "id": "VULN-001",
-        "severity": "Critical",
-        "category": "Network Security",
-        "affected_resource": "myVirtualNetwork/mySubnet/myNSG",
-        "title": "공개된 관리 포트",
-        "description": "SSH 포트(22)가 인터넷에 공개되어 무차별 대입 공격에 취약합니다.",
-        "evidence": "securityRules에서 sourceAddressPrefix: '*', destinationPortRange: '22' 확인됨",
-        "remediation": "NSG 규칙을 수정하여 SSH 접근을 신뢰할 수 있는 IP 범위로만 제한하세요.",
-        "benchmark_ref": "CIS Azure Foundations Benchmark v1.5.0 - 6.2"
-      }
-    ],
-    "attack_scenarios": [
-      {
-        "id": "ATK-001",
-        "name": "SSH 무차별 대입 공격",
-        "mitre_technique": "T1110.001 - Brute Force: Password Guessing",
-        "target_vulnerabilities": ["VULN-001"],
-        "severity": "High",
-        "prerequisites": "공개된 SSH 포트 (22번)",
-        "attack_chain": [
-          "공격자가 공개된 IP의 22번 포트를 스캔하여 SSH 서비스 탐지",
-          "자동화 도구(Hydra, Medusa 등)를 사용해 무차별 대입 공격 수행",
-          "약한 비밀번호 또는 기본 자격 증명으로 인증 성공",
-          "VM에 대한 전체 접근 권한 획득"
-        ],
-        "expected_impact": "VM 탈취, 데이터 유출, 랜섬웨어 배포, 내부 네트워크 피봇 포인트 확보",
-        "detection_difficulty": "Medium",
-        "likelihood": "High"
-      }
-    ],
-    "vulnerability_summary": {
+    "final_report": "# 🔍 PreFlight Security Report\n\n## 📋 Executive Summary\n| Severity | Count |\n|----------|-------|\n| Critical | 2 |\n| High | 2 |\n| Medium | 1 |\n| Low | 0 |\n...",
+    "vulnerability_summary": 5,
+    "severity_counts": {
       "Critical": 2,
       "High": 2,
       "Medium": 1,
       "Low": 0
     },
-    "report": "# Azure 아키텍처 보안 분석 보고서\n\n## 요약\n\n전체 5개의 보안 취약점이 발견되었습니다..."
+    "verification_checklist": [
+      "Key Vault networkAcls.defaultAction이 Deny로 설정되어 있는지 확인",
+      "Storage Account allowBlobPublicAccess가 false인지 확인",
+      "Private Endpoint 구성이 프로덕션 환경에서도 유지되는지 확인",
+      "TLS 최소 버전이 1.2 이상으로 설정되어 있는지 확인",
+      "HTTPS Only 설정이 활성화되어 있는지 확인"
+    ]
   }
 }
 ```
@@ -232,20 +182,18 @@ curl -X POST http://localhost:8000/api/v1/analyze \
 
 ```mermaid
 graph LR
-    A[파일 업로드] --> B[파일 전처리]
-    B --> C[BiCep 변환]
-    C --> D[Policy 검증]
-    C --> E[RedTeam 분석]
-    D --> F[결과 종합]
-    E --> F
+    A[파일 업로드] --> B[BiCep 변환]
+    B --> C[Policy 검증]
+    B --> D[Recon 분석]
+    C --> E[PreFlight 통합 보고서]
+    D --> E
 ```
 
 1. **파일 업로드**: 파일 검증 (형식, 크기)
-2. **파일 전처리**: 파일 파싱 (현재 Mock 구현)
-3. **BiCep 변환**: 아키텍처 → BiCep 코드 변환 (현재 Mock 구현)
-4. **Policy 검증** (병렬): Azure Policy 준수 검증 (현재 Mock 구현)
-5. **RedTeam 분석** (병렬): 취약점 탐지 및 공격 시뮬레이션 (현재 Mock 구현)
-6. **결과 종합**: 전체 결과 집계
+2. **BiCep 변환**: Vision LLM으로 이미지 → Bicep 코드 변환 (`transform_image_to_bicep`)
+3. **Policy 검증** (병렬): RAG + LLM 기반 정책 준수 검증 (`review_bicep_only`)
+4. **Recon 분석** (병렬): LLM 기반 취약점 탐지 및 공격 시나리오 도출 (`analyze_bicep`)
+5. **PreFlight 통합 보고서**: Policy + Recon 결과를 설계 의도 관점에서 통합 해설 보고서 생성 (`generate_preflight_report`)
 
 ---
 
@@ -267,15 +215,10 @@ Content-Type: application/json
   "question": "Critical 취약점의 수정 우선순위는?",
   "context": {
     "security": {
-      "vulnerabilities": [...],
-      "attack_scenarios": [...],
-      "vulnerability_summary": {...},
-      "report": "..."
-    },
-    "policy": {
-      "status": "failed",
-      "violations": [...],
-      "recommendations": [...]
+      "final_report": "# 🔍 PreFlight Security Report\n...",
+      "vulnerability_summary": 5,
+      "severity_counts": {"Critical": 2, "High": 2, "Medium": 1, "Low": 0},
+      "verification_checklist": ["..."]
     }
   },
   "history": [
@@ -326,16 +269,12 @@ Content-Type: application/json
 curl -X POST http://localhost:8000/api/v1/chat \
   -H "Content-Type: application/json" \
   -d '{
-    "question": "Critical 취약점을 어떻게 수정하나요?",
+    "question": "보고서에서 가장 시급히 수정해야 할 항목은?",
     "context": {
       "security": {
-        "vulnerabilities": [
-          {
-            "id": "VULN-001",
-            "severity": "Critical",
-            "title": "공개된 관리 포트"
-          }
-        ]
+        "final_report": "# 🔍 PreFlight Security Report\n...",
+        "vulnerability_summary": 5,
+        "verification_checklist": ["Key Vault networkAcls.defaultAction=Deny 확인"]
       }
     }
   }'
@@ -486,44 +425,27 @@ export GITHUB_TOKEN="ghp_your_token_here"
 }
 ```
 
-### VulnerabilityItem
+### SecurityResult
 
 ```typescript
 {
-  id: string;              // 취약점 ID (예: "VULN-001")
-  severity: string;        // "Critical" | "High" | "Medium" | "Low"
-  category: string;        // 카테고리 (예: "Network Security")
-  affected_resource: string; // 영향받는 리소스 경로
-  title: string;           // 취약점 제목
-  description: string;     // 취약점 설명
-  evidence: string;        // 증거
-  remediation: string;     // 수정 방법
-  benchmark_ref?: string;  // 벤치마크 참조 (선택)
+  final_report: string;              // PreFlight 통합 보고서 (Markdown)
+  vulnerability_summary: number;     // 전체 취약점 수
+  severity_counts: {                 // 심각도별 취약점 수
+    Critical: number;
+    High: number;
+    Medium: number;
+    Low: number;
+  };
+  verification_checklist: string[];  // 배포 전 검증 체크리스트
 }
 ```
 
-### AttackScenarioItem
-
 ```typescript
 {
-  id: string;                      // 공격 시나리오 ID
-  name: string;                    // 공격명
-  mitre_technique: string;         // MITRE ATT&CK 기법
-  target_vulnerabilities: string[]; // 대상 취약점 ID 목록
-  severity: string;                // 심각도
-  prerequisites: string;           // 전제 조건
-  attack_chain: string[];          // 공격 체인 (단계별)
-  expected_impact: string;         // 예상 피해
-  detection_difficulty: string;    // 탐지 난이도
-  likelihood: string;              // 발생 가능성
-}
-```
-
-### PolicyResult
-
-```typescript
-{
-  status: string;        // "passed" | "failed"
+  status: string;          // "passed" | "failed"
+  result_message: string;  // 검증 결과 메시지
+  total_checks: number;    // 전체 검사 항목 수
   violations: Array<{
     rule: string;
     severity: string;
@@ -567,14 +489,3 @@ gunicorn -c gunicorn.conf.py api.main:app
 export GITHUB_TOKEN="ghp_..."
 ```
 
----
-
-## 추후 구현 예정
-
-현재 Mock으로 구현된 기능들:
-- 파일 전처리 (파일 파싱, Azure Blob 저장)
-- BiCep 변환 (LLM 기반 아키텍처 → BiCep 변환)
-- Policy Agent (Azure Policy와의 실제 연동)
-- RedTeam Agent (정적 규칙 → LLM 기반 분석)
-
-실제 구현 전환 가이드는 [DEVELOPMENT.md](DEVELOPMENT.md)를 참조하세요.

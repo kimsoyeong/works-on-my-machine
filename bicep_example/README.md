@@ -22,7 +22,7 @@
 | `sample_design.bicep` | 데모용 샘플 Bicep. 의도적으로 정책 위반을 넣어 둠 (NSG `*`, 스토리지 HTTP 허용, 웹앱 HTTPS 미설정 등). |
 | `demo_rag_review.py` | 위 흐름을 로컬에서 재현하는 스크립트. RAG로 검색된 청크와 검토 결과를 출력합니다. |
 
-## Bicep 변환 출력 샘플 (RedTeam Agent / Policy Agent 개발용)
+## Bicep 변환 출력 샘플 (Recon Agent / Policy Agent 개발용)
 
 `bicep_transformer`에서 나올 수 있는 아웃풋 형태의 예시 데이터. **총 16개.**
 
