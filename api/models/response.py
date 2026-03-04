@@ -1,4 +1,5 @@
 from pydantic import BaseModel, Field
+from agents.models import AttackScenario
 
 
 class HealthResponse(BaseModel):
@@ -20,36 +21,13 @@ class PolicyResult(BaseModel):
     summary: str = ""
 
 
-class VulnerabilityItem(BaseModel):
-    id: str
-    severity: str
-    category: str
-    affected_resource: str
-    title: str
-    description: str
-    evidence: str
-    remediation: str
-    benchmark_ref: str = ""
-
-
-class AttackScenarioItem(BaseModel):
-    id: str
-    name: str
-    mitre_technique: str
-    target_vulnerabilities: list[str]
-    severity: str
-    prerequisites: str
-    attack_chain: list[str]
-    expected_impact: str
-    detection_difficulty: str
-    likelihood: str
-
 
 class SecurityResult(BaseModel):
-    final_report: str = ""              # 통합 해설 보고서 (Markdown)
+    final_report: str = ""  # 통합 해설 보고서 (Markdown)
     vulnerability_summary: int = 0
-    severity_counts: dict = {}          # {"Critical": X, "High": Y, "Medium": Z, "Low": W}
+    severity_counts: dict = {}  # {"Critical": X, "High": Y, "Medium": Z, "Low": W}
     verification_checklist: list[str] = []
+    attack_scenarios: list[AttackScenario] = []
 
 
 class AnalyzeResponse(BaseModel):
