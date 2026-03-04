@@ -1,13 +1,14 @@
 import asyncio
+import dataclasses
 import logging
 import os
 import uuid
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from agents.policy_agent import review_bicep_only
-from agents.new_agent_wrapper_v2 import analyze_bicep  # V2: stdout에서 JSON 추출
-from agents.preflight_agent import generate_preflight_report
+from agents.recon_agent_wrapper import analyze_bicep
+from agents.reporting_agent import generate_report
 from api.models.response import (
     AnalyzeResponse,
     PolicyResult,
@@ -74,16 +75,15 @@ async def _run_policy(bicep_code: str) -> tuple[PolicyResult | None, StepStatus]
     return policy_result, step
 
 
-async def _run_recon(bicep_code: str, agent_mode: str = "with-tools"):
+async def _run_recon(bicep_code: str):
     """
     Agent를 사용하여 Recon 분석 수행
 
     Args:
         bicep_code: Bicep 코드
-        agent_mode: "zero-tools" (느림, 창의적) 또는 "with-tools" (빠름, 일관적)
     """
-    logger.info(f"🤖 Starting Agent (mode: {agent_mode})")
-    result = await analyze_bicep(bicep_code, agent_mode=agent_mode)
+    logger.info(f"🤖 Starting Agent...")
+    result = await analyze_bicep(bicep_code)
 
     vuln_count = len(result.vulnerabilities)
     attack_count = len(result.attack_scenarios)
@@ -94,14 +94,13 @@ async def _run_recon(bicep_code: str, agent_mode: str = "with-tools"):
     return result, StepStatus(
         step="Recon 분석",
         status="completed",
-        message=f"취약점 {vuln_count}개, 공격 시나리오 {attack_count}개 ({agent_mode})",
+        message=f"취약점 {vuln_count}개, 공격 시나리오 {attack_count}개",
     )
 
 
 @router.post("/analyze", response_model=AnalyzeResponse)
 async def analyze_architecture(
     file: UploadFile = File(...),
-    agent_mode: str = Form(default="with-tools"),
 ):
     """
     아키텍처 파일을 분석합니다.
@@ -114,7 +113,6 @@ async def analyze_architecture(
 
     Args:
         file: 아키텍처 파일 (PDF/PNG/JPG)
-        agent_mode: Agent 실행 모드 ("with-tools" 권장)
     """
     task_id = uuid.uuid4().hex[:12]
     steps: list[StepStatus] = []
@@ -144,7 +142,7 @@ async def analyze_architecture(
         # --- Step 3+4: Policy 검증 & Recon 분석 (병렬) ---
         (policy_result, policy_step), (result, recon_step) = await asyncio.gather(
             _run_policy(bicep_code),
-            _run_recon(bicep_code, agent_mode),
+            _run_recon(bicep_code),
         )
         steps.append(policy_step)
         steps.append(recon_step)
@@ -166,12 +164,15 @@ async def analyze_architecture(
             }
             for v in result.vulnerabilities
         ]
+        recon_attack_dicts = [dataclasses.asdict(s) for s in result.attack_scenarios]
+
         # 보고서 생성
-        preflight = await generate_preflight_report(
+        preflight = await generate_report(
             bicep_code=bicep_code,
             policy_violations=policy_violations,
             policy_recommendations=policy_recommendations,
             recon_vulnerabilities=recon_vuln_dicts,
+            recon_attack_scenarios=recon_attack_dicts,
             recon_report=result.report,
         )
         steps.append(
@@ -185,7 +186,12 @@ async def analyze_architecture(
             )
         )
 
-        severity_counts: dict[str, int] = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0}
+        severity_counts: dict[str, int] = {
+            "Critical": 0,
+            "High": 0,
+            "Medium": 0,
+            "Low": 0,
+        }
         for v in recon_vuln_dicts:
             sev = v.get("severity", "Medium")
             severity_counts[sev] = severity_counts.get(sev, 0) + 1
@@ -195,6 +201,7 @@ async def analyze_architecture(
             vulnerability_summary=preflight["vulnerability_summary"],
             severity_counts=severity_counts,
             verification_checklist=preflight["verification_checklist"],
+            attack_scenarios=result.attack_scenarios,
         )
 
         # --- Step 6: 결과 종합 ---
