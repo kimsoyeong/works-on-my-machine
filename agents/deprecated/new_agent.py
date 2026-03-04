@@ -706,5 +706,5 @@ async def main():
     await convert_and_attack(bicep_file, output_file)
 
 
-if __name__ == "__main__":
-    asyncio.run(main())
+# if __name__ == "__main__":
+#     asyncio.run(main())

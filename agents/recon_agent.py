@@ -1,7 +1,8 @@
 """
-Bicep to Docker Compose Converter Agent
+Recon Agent
 
-GitHub Copilot SDK 기반의 Agent로, Bicep 코드를 읽어서 Docker Compose 파일로 변환합니다.
+Bicep 코드를 Docker Compose로 변환하여 로컬 환경을 구성하고,
+보안 시뮬레이션을 수행하여 취약점 및 공격 시나리오를 분석한다.
 """
 
 import asyncio
@@ -19,7 +20,7 @@ import sys
 import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from agents.agent import (
+from agents.models import (
     BicepParser,
     ResourceMapper,
     DockerComposer,
@@ -400,7 +401,7 @@ def deploy_docker_compose(
 # Agent Instructions
 # ============================================================
 
-AGENT_INSTRUCTIONS = """
+RECON_AGENT_INSTRUCTIONS = """
 You are a Security Architecture Validation Agent with controlled CLI execution capability.
 
 Your mission is to:
@@ -533,12 +534,11 @@ You MUST include:
 - container
 - objective
 - executed_command
-- raw_output (truncate if longer than 500 characters, add "...[truncated]")
-- observation
-- security_interpretation
+- command_output (truncate if longer than 500 characters, add "...[truncated]")
+- security_finding (observation과 security_interpretation을 통합한 단일 필드)
 - severity (Critical / High / Medium / Low)
 
-raw_output MUST be:
+command_output MUST be:
 - Direct output from the executed command
 - Not modified except for truncation
 - Maximum 500 characters
@@ -636,14 +636,14 @@ Structure:
   ],
   "attack_scenarios": [
     {
-      "id": "SCN-001",
-      "container": "...",
-      "objective": "...",
-      "executed_command": "...",
-      "raw_output": "...",
-      "observation": "...",
-      "security_interpretation": "...",
-      "severity": "Critical/High/Medium/Low"
+      "id": "SCN-001",  # Scenario identifier (e.g., "SCN-001")
+      "mitre_technique": "...",  # MITRE ATT&CK framework technique ID. Represents the technique under which detected vulnerabilities are classified from an attacker's perspective. Examples: "T1190" (Exploit Public-Facing Application), "T1552" (Unsecured Credentials)
+      "container": "...",  # Target resource name for attack (Docker container name). Example: "vm_webapp_1"
+      "objective": "...",  # Attack goal of this scenario. Example: "Obtain admin privileges through authentication bypass"
+      "executed_command": "...",  # Example command to reproduce this scenario (simulated locally, not actual attack). Example: "curl -X POST http://webapp:80/login -d 'username=admin&password='"
+      "command_output": "...",  # Output of the executed command above (simulated logs/response)
+      "security_finding": "...",  # Analysis combining observation results and security implications if this scenario succeeds. Example: "Admin session acquisition without authentication → can lead to privilege escalation and lateral movement"
+      "severity": "Critical/High/Medium/Low"  # Risk level if this scenario is realized
     }
   ],
   "vulnerability_summary": {
@@ -690,7 +690,7 @@ The "report" field MUST strictly follow this Markdown structure:
 
 - 대상 컨테이너:
 - 실행 명령어:
-- 주요 결과:
+- 실행 결과:
 - 보안 해석:
 - 위험도:
 
@@ -759,7 +759,7 @@ and structured remediation guidance.
 # ============================================================
 
 
-async def convert_bicep_to_compose(
+async def invoke_recon_agent(
     bicep_file_path: str, output_path: str = "docker-compose.yml"
 ):
     """
@@ -769,10 +769,12 @@ async def convert_bicep_to_compose(
         bicep_file_path: 변환할 Bicep 파일 경로
         output_path: 출력할 Docker Compose 파일 경로 (기본: docker-compose.yml)
     """
+    logger.info(f"🔄 Invoking agent for: {bicep_file_path}")
+
     agent = GitHubCopilotAgent(
         default_options={
-            "instructions": AGENT_INSTRUCTIONS,
-            "model": "sonnet-4.5",
+            "instructions": RECON_AGENT_INSTRUCTIONS,
+            "model": "claude-sonnet-4.5",
             "timeout": 600,  # 10분 타임아웃 (배포 + 공격 + JSON 생성)
         },
         tools=[
@@ -791,7 +793,7 @@ deploy it, and perform controlled security validation.
 
 Follow these phases strictly:
 
-PHASE 1: Deployment
+PHASE 1: Deployment (with tools only)
 - Read Bicep
 - Parse resources
 - Generate Compose
@@ -832,13 +834,15 @@ Do NOT output text outside JSON.
 """
 
         result = await agent.run(prompt)
-        # print("\n" + "=" * 80)
-        # print("AGENT RESULT:")
-        # print("=" * 80)
-        # print(result)
-        # print("=" * 80)
+        # logger.info("\n" + "=" * 80)
+        # logger.info("AGENT RESULT:")
+        # logger.info("=" * 80)
+        # logger.info(result)
+        # logger.info("=" * 80)
 
-        print("\n✅ Agent execution completed. Please check the output for results.")
+        logger.info(
+            "✅ Agent execution completed. Please check the output for results."
+        )
 
         return result
 
@@ -853,9 +857,9 @@ async def main():
     import sys
 
     if len(sys.argv) < 2:
-        print("Usage: python agents/new_agent.py <bicep_file_path> [output_path]")
+        print("Usage: python agents/recon_agent.py <bicep_file_path> [output_path]")
         print(
-            "Example: python agents/new_agent.py samples/simple.bicep docker-compose.yml"
+            "Example: python agents/recon_agent.py samples/simple.bicep docker-compose.yml"
         )
         sys.exit(1)
 
@@ -866,8 +870,8 @@ async def main():
     print(f"📝 Output will be saved to: {output_file}")
     print()
 
-    await convert_bicep_to_compose(bicep_file, output_file)
+    await invoke_recon_agent(bicep_file, output_file)
 
 
-if __name__ == "__main__":
-    asyncio.run(main())
+# if __name__ == "__main__":
+#     asyncio.run(main())

@@ -20,58 +20,7 @@ logger = logging.getLogger(__name__)
 # Agent Instructions
 # ─────────────────────────────────────────────────────────────
 
-PREFLIGHT_AGENT_INSTRUCTIONS = """
-You are a PreFlight Security Architecture Review Agent.
-
-Your role is to synthesize Policy compliance results and Recon vulnerability findings
-into a unified security advisory report from the perspective of:
-  "Original design security intent vs. reconstructed/transformed structure"
-
-CRITICAL CONSTRAINTS:
-- You are NOT performing real penetration testing
-- You are NOT confirming actual exploitability
-- You are performing design-level security intent analysis ONLY
-- All risk statements MUST use conditional language:
-    · "If deployed without equivalent network controls..."
-    · "In the absence of Private Endpoint equivalent..."
-    · "This may increase exposure to..."
-    · "Could potentially allow..."
-- NEVER state definitive exploitation claims
-- NEVER use phrases like "penetration is possible" or "attack can succeed"
-- Focus on design-level security intent gaps ONLY
-
-REPORT LANGUAGE: Korean (한국어)
-
-OUTPUT FORMAT:
-Your response MUST be valid JSON only. No markdown wrapper. No explanation.
-
-{
-  "final_report": "# 🔍 PreFlight 통합 보안 보고서\\n\\n...(full Markdown in Korean)...",
-  "vulnerability_summary": <int: total recon vulnerability count>,
-  "verification_checklist": [
-    "배포 전 확인항목 1",
-    "배포 전 확인항목 2",
-    ...
-  ]
-}
-
-The final_report field MUST contain a Markdown document with these 6 sections in order:
-
-## 📊 Executive Summary
-## 1. 🏛️ Original Architecture Security Intent
-## 2. 🔄 Reconstructed / Transformed Structure Review
-## 3. ⚠️ Design-Level Security Mismatch Analysis
-## 4. 💥 Potential Security Impact
-## 5. ✅ Recommended Verification Checklist
-## 6. 🔧 Updated Bicep Code
-
-Conditional language is MANDATORY in sections 3 and 4.
-The verification_checklist list MUST be extracted from section 5 content (minimum 7 items).
-Section 6 MUST contain the complete updated Bicep code that fixes all identified issues.
-"""
-
-
-PREFLIGHT_AGENT_INSTRUCTIONS = """
+REPORTING_AGENT_INSTRUCTIONS = """
 You are a PreFlight Architecture Security Integrity Agent.
 
 MISSION:
@@ -87,22 +36,15 @@ IMPORTANT CONSTRAINTS:
 - 단정형 공격 표현(“침투 가능”, “공격 성공”, “익스플로잇 가능”) 금지.
 
 CONDITIONAL LANGUAGE RULE:
-위험 문장은 다음과 같은 형식을 반드시 포함해야 한다:
-- "If deployed without equivalent controls..."
-- "In the absence of..."
-- "This may increase exposure to..."
-- "Could potentially allow..."
+위험 문장은 다음 형식 중 하나를 반드시 포함해야 한다:
+- “If deployed without equivalent controls...”
+- “In the absence of...”
+- “This may increase exposure to...”
+- “Could potentially allow...”
 
-LANGUAGE ENFORCEMENT:
-- 모든 서술형 문장은 한국어로 작성한다.
-- 모든 섹션 제목은 한국어로 작성한다.
-- 모든 표 헤더는 한국어로 작성한다.
-- 영어는 조건부 위험 문장 내부에서만 허용된다.
-- final_report 전체는 조건부 표현을 제외하고 한국어여야 한다.
+LANGUAGE: 한국어. 조건부 위험 문장 내부에서만 영어 허용.
 
-OUTPUT REQUIREMENT:
-반드시 유효한 JSON만 반환한다.
-마크다운 코드펜스나 추가 설명을 포함하지 않는다.
+OUTPUT: 반드시 유효한 JSON만 반환한다. 마크다운 코드펜스나 추가 설명 금지.
 
 JSON FORMAT:
 {
@@ -111,97 +53,10 @@ JSON FORMAT:
   "verification_checklist": ["항목1", "항목2", ...]
 }
 
-MARKDOWN STRUCTURE (순서 엄수):
-
-# 🔍 PreFlight 아키텍처 보안 무결성 보고서
-
-## 1. 📊 경영진 요약 (Executive Risk Overview)
-
-- 심각도 요약 테이블 (Critical/High/Medium/Low)
-- Policy 위반 요약 테이블
-- 아키텍처 보안 무결성 점수(%) 제시
-- 핵심 설계 리스크 2~4줄 요약
-
-심각도 표 형식:
-| 등급 | 건수 | 주요 항목 |
-
-Policy 표 형식:
-| # | 규칙 ID | 심각도 | 요약 |
-
----
-
-## 2. 🏛️ 원본 보안 설계 의도 분석
-
-| 보안 통제 | 설계 목적 | Bicep 설정값 | 평가(✅/⚠️/❌) |
-
-실제 코드 기반으로 작성한다.
-
----
-
-## 3. 🔄 보안 통제 무결성 매트릭스
-
-| 통제 항목 | 원본 상태 | 변환 후 상태 | 무결성(유지/약화/미적용) | 위험 등급(🔴/🔶/🔷/🟢) |
-
----
-
-## 4. ⚠️ 설계 불일치 상세 분석
-
-각 주요 불일치에 대해:
-
-### MSM-XXX: 실제 제목
-
-- 보안 목표
-- 원본 통제 방식
-- 변환 후 상태
-- 무결성 붕괴 지점
-- 조건부 위험 설명 (영어 조건부 문장 포함 필수)
-- 요구되는 보완 통제
-- 위험 등급
-
-※ 모든 위험 설명은 조건부 문장 사용 필수
-
----
-
-## 5. 💥 잠재적 보안 영향
-
-### P0 – 즉시 검토 필요
-### P1 – 단기 개선 권고
-### P2 – 구조적 개선 권고
-
-모든 서술은 조건부 형식으로 작성한다.
-
----
-
-## 6. ✅ 배포 전 검증 매트릭스
-
-| # | 검증 항목 | 중요 이유 | 검증 방법 |
-
-- 최소 7개 이상 작성
-- verification_checklist 필드에는
-  위 표의 "검증 항목" 열만 문자열 배열로 추출한다.
-
----
-
-## 7. 🔧 개선 설계 청사진
-
-### 주요 변경 사항
-
-| # | 변경 항목 | 기존 | 개선 |
-
-### 개선된 전체 Bicep 코드
-
-```bicep
-완전한 수정 코드 작성 (placeholder 금지)
-```
-
-END OF MARKDOWN REPORT
-
-==============================
-INTERNAL RULES (DO NOT PRINT)
-==============================
-- vulnerability_summary MUST equal recon 취약점 개수
-- verification_checklist MUST contain only 검증 항목 문자열 배열
-- placeholder 금지
+INTERNAL RULES (DO NOT PRINT):
+- placeholder 금지 — 모든 섹션을 실제 분석 내용으로 채울 것
+- vulnerability_summary = recon_vulnerabilities 총 개수
+- verification_checklist = 섹션 5의 항목을 문자열 배열로만 추출
 - JSON 외 텍스트 출력 금지
 - 조건부 문장 규칙 위반 시 보고서 전체를 무효로 간주
 """
@@ -211,11 +66,12 @@ INTERNAL RULES (DO NOT PRINT)
 # ─────────────────────────────────────────────────────────────
 
 
-async def generate_preflight_report(
+async def generate_report(
     bicep_code: str,
     policy_violations: list[dict],
     policy_recommendations: list[dict],
     recon_vulnerabilities: list[dict],
+    recon_attack_scenarios: list[dict],
     recon_report: str,
 ) -> dict:
     """
@@ -225,7 +81,8 @@ async def generate_preflight_report(
         bicep_code: 원본 Bicep 코드
         policy_violations: Policy 위반 목록
         policy_recommendations: Policy 권장 목록
-        recon_vulnerabilities: Recon 취약점 목록 (dict)
+        recon_vulnerabilities: Recon 취약점 목록 (list of dict)
+        recon_attack_scenarios: Recon 시뮬레이션 공격 시나리오 목록 (list of dict)
         recon_report: Recon 에이전트가 생성한 보고서 텍스트
 
     Returns:
@@ -236,6 +93,7 @@ async def generate_preflight_report(
         }
     """
     vuln_count = len(recon_vulnerabilities)
+    attack_count = len(recon_attack_scenarios)
 
     # severity 분포 사전 계산 (프롬프트에 명시적으로 제공)
     severity_counts = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0}
@@ -248,9 +106,10 @@ async def generate_preflight_report(
         policy_recommendations, ensure_ascii=False, indent=2
     )
     vuln_text = json.dumps(recon_vulnerabilities, ensure_ascii=False, indent=2)
+    attack_text = json.dumps(recon_attack_scenarios, ensure_ascii=False, indent=2)
 
     prompt = f"""
-Generate a PreFlight integrated security advisory report based on the following inputs.
+다음 입력 데이터를 분석하여 PreFlight 통합 보안 보고서를 생성하십시오.
 
 ========== ORIGINAL BICEP CODE ==========
 {bicep_code[:8000]}
@@ -264,17 +123,28 @@ Generate a PreFlight integrated security advisory report based on the following 
 ========== RECON VULNERABILITIES ({vuln_count}) ==========
 {vuln_text[:3000]}
 
+========== RECON ATTACK SCENARIOS ({attack_count}) ==========
+Each entry represents a simulated attack scenario run against a local Docker container
+that replicates an Azure resource. Fields:
+- id: scenario identifier (SCN-XXX)
+- mitre_technique: MITRE ATT&CK technique ID
+- severity: risk level if scenario succeeds
+- container: target container name
+- objective: attack goal
+- executed_command: command used in simulation
+- command_output: output from the command
+- security_finding: combined observation and security interpretation
+{attack_text[:3000]}
+
 ========== PREVIOUS RECON REPORT (excerpt) ==========
 {recon_report[:2000]}
 
-==========================================
-
-Generate the unified PreFlight report in Korean following this EXACT Markdown structure.
-Fill in each section with actual analysis — do NOT leave placeholder text.
 
 ============================================================
 REPORT FORMAT (STRICT TEMPLATE)
 ============================================================
+
+아래 형식을 엄수하여 PreFlight 통합 보안 보고서를 작성하시오. placeholder 금지 — 모든 섹션을 실제 분석 내용으로 채울 것.
 
 # 🔍 PreFlight 통합 보안 보고서
 
@@ -352,6 +222,25 @@ REPORT FORMAT (STRICT TEMPLATE)
 
 ---
 
+## 🎯 시뮬레이션 기반 검증 결과
+
+로컬 Docker 환경에서 수행된 공격 시나리오 시뮬레이션 결과입니다.
+실제 Azure 리소스에 대한 공격이 아닌, 동등한 구성을 로컬에 재현하여 설계 취약점을 확인한 결과입니다.
+
+| ID | MITRE 기법 | 대상 컨테이너 | 위험도 | 목표 | 보안 발견 사항 |
+|----|-----------|--------------|--------|------|----------------|
+(recon_attack_scenarios의 각 항목을 한 행씩 채울 것. 시나리오가 없으면 "| - | - | - | - | - | 시뮬레이션 결과 없음 |" 한 행 작성)
+
+시나리오가 있는 경우, 각 항목에 대해 아래 형식으로 상세 서술할 것:
+
+### SCN-XXX: [objective 내용]
+- **MITRE**: (mitre_technique)
+- **대상**: (container)
+- **위험도**: 🔴/🔶/🔷/🟢
+- **보안 발견**: (security_finding — 조건부 표현 사용)
+
+---
+
 ## 4. 💥 Potential Security Impact
 
 잠재적 보안 영향을 조건부로 설명합니다.
@@ -400,26 +289,6 @@ REPORT FORMAT (STRICT TEMPLATE)
 
 ---
 
-============================================================
-FORMAT RULES
-============================================================
-
-- 모든 섹션을 실제 분석 내용으로 채울 것 (placeholder 금지)
-- Executive Summary의 "주요 발견 항목" 컬럼은 실제 취약점/정책위반 제목으로 채울 것
-- Policy 위반 요약 테이블은 제공된 policy_violations 데이터를 그대로 반영할 것
-- 섹션 3, 4는 반드시 조건부 표현 사용 (단정 표현 금지)
-- "실제 공격 수행" 또는 "침투 가능" 단정 표현 금지
-- 섹션 6의 Bicep 코드는 ```bicep 코드블록으로 감싸고, 실제 수정된 완전한 코드를 작성할 것
-- 이모지를 섹션 헤더에 활용하여 가시성 확보
-- 한국어로 작성 (조건부 표현 구문은 영어 허용)
-
-============================================================
-
-REQUIREMENTS:
-- Write entirely in Korean (한국어)
-- vulnerability_summary MUST equal: {vuln_count}
-- verification_checklist MUST be extracted from section 5 items as a plain string list
-
 Return ONLY valid JSON (no markdown code fence, no extra text):
 {{
   "final_report": "...(full Markdown report in Korean)...",
@@ -435,22 +304,26 @@ Return ONLY valid JSON (no markdown code fence, no extra text):
             api_key=os.getenv("AZURE_OPENAI_API_KEY"),
         )
         agent = client.as_agent(
-            name="PreFlightReportAgent",
-            instructions=PREFLIGHT_AGENT_INSTRUCTIONS,
+            name="ReportingAgent",
+            instructions=REPORTING_AGENT_INSTRUCTIONS,
             temperature=0.3,
             max_tokens=6000,
         )
     except Exception as e:
-        logger.error(f"❌ PreFlight agent 초기화 실패: {e}", exc_info=True)
-        return _fallback_report(policy_violations, recon_vulnerabilities, vuln_count)
+        logger.error(f"❌ Reporting agent 초기화 실패: {e}", exc_info=True)
+        return _fallback_report(
+            policy_violations, recon_vulnerabilities, recon_attack_scenarios, vuln_count
+        )
 
     try:
         result = await agent.run(prompt)
         agent_response_text = (result.text or "").strip()
-        logger.info("✅ PreFlight agent 실행 완료")
+        logger.info("✅ Reporting agent 실행 완료")
     except Exception as e:
-        logger.error(f"❌ PreFlight agent 실행 실패: {e}", exc_info=True)
-        return _fallback_report(policy_violations, recon_vulnerabilities, vuln_count)
+        logger.error(f"❌ Reporting agent 실행 실패: {e}", exc_info=True)
+        return _fallback_report(
+            policy_violations, recon_vulnerabilities, recon_attack_scenarios, vuln_count
+        )
 
     parsed = _parse_json_response(agent_response_text)
     if parsed:
@@ -461,8 +334,10 @@ Return ONLY valid JSON (no markdown code fence, no extra text):
         )
         return parsed
 
-    logger.warning("⚠️ PreFlight agent: JSON 파싱 실패, fallback 사용")
-    return _fallback_report(policy_violations, recon_vulnerabilities, vuln_count)
+    logger.warning("⚠️ Reporting agent: JSON 파싱 실패, fallback 사용")
+    return _fallback_report(
+        policy_violations, recon_vulnerabilities, recon_attack_scenarios, vuln_count
+    )
 
 
 # ─────────────────────────────────────────────────────────────
@@ -498,6 +373,7 @@ def _parse_json_response(text: str) -> dict | None:
 def _fallback_report(
     policy_violations: list[dict],
     recon_vulnerabilities: list[dict],
+    recon_attack_scenarios: list[dict],
     vuln_count: int,
 ) -> dict:
     """Agent 실패 시 기본 보고서 생성"""
@@ -515,6 +391,16 @@ def _fallback_report(
             for v in recon_vulnerabilities
         )
         or "- 발견된 취약점 없음"
+    )
+
+    attack_table_rows = (
+        "\n".join(
+            f"| {s.get('id', '-')} | {s.get('mitre_technique', '-')} "
+            f"| {s.get('container', '-')} | {s.get('severity', '-')} "
+            f"| {s.get('objective', '-')[:60]} | {s.get('security_finding', '-')[:80]} |"
+            for s in recon_attack_scenarios
+        )
+        or "| - | - | - | - | - | 시뮬레이션 결과 없음 |"
     )
 
     severity_counts: dict[str, int] = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0}
@@ -623,6 +509,17 @@ Bicep → Docker Compose 변환 과정에서 보안 통제 유지 여부를 검�
 If deployed without equivalent network isolation controls, the following design-level gaps may apply.
 In the absence of Private Endpoint equivalent configurations, public exposure potential may increase.
 This may increase exposure to unauthorized network access if whitelist-based access controls are not replicated.
+
+---
+
+## 🎯 시뮬레이션 기반 검증 결과
+
+로컬 Docker 환경에서 수행된 공격 시나리오 시뮬레이션 결과입니다.
+실제 Azure 리소스에 대한 공격이 아닌, 동등한 구성을 로컬에 재현하여 설계 취약점을 확인한 결과입니다.
+
+| ID | MITRE 기법 | 대상 컨테이너 | 위험도 | 목표 | 보안 발견 사항 |
+|----|-----------|--------------|--------|------|----------------|
+{attack_table_rows}
 
 ---
 

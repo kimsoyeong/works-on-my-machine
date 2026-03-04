@@ -7,10 +7,7 @@ Bicep 코드를 분석하여 Docker Compose로 로컬 환경을 구축하고,
 GitHub Copilot SDK를 사용하여 동적 공격 전략을 수립합니다.
 """
 
-import asyncio
-import json
 import logging
-import os
 import re
 import subprocess
 import tempfile
@@ -18,15 +15,15 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from pydantic import BaseModel, Field
 
 import docker
 import yaml
 
 # GitHub Copilot SDK (선택적 import - 없으면 fallback)
 try:
-    from copilot import CopilotClient
     from copilot.tools import define_tool
-    from pydantic import BaseModel, Field
+    from copilot import CopilotClient
 
     COPILOT_AVAILABLE = True
 except ImportError:
@@ -58,18 +55,34 @@ class VulnerabilityItem:
 
 @dataclass
 class AttackScenario:
-    """공격 시나리오 (API 호환)"""
+    """
+    Bicep 정적 분석 기반의 가상 공격 시나리오.
 
-    id: str
-    name: str
+    실제 공격을 수행하는 것이 아니라, 탐지된 설정 취약점이 어떤 공격으로 이어질 수 있는지 로컬에 재현/배포한 컨테이너들에서 시뮬레이션한 결과다.
+    """
+
+    id: str  # 시나리오 식별자. 예: "SCN-001"
+
     mitre_technique: str
-    target_vulnerabilities: List[str]
-    severity: str
-    prerequisites: str
-    attack_chain: List[str]
-    expected_impact: str
-    detection_difficulty: str
-    likelihood: str
+    # MITRE ATT&CK 프레임워크 기법 ID.
+    # 탐지된 취약점이 실제 공격자 관점에서 어떤 기법으로 분류되는지 나타낸다.
+    # 예: "T1190" (공개 애플리케이션 익스플로잇), "T1552" (자격증명 노출)
+
+    severity: str  # 이 시나리오가 실현될 경우의 위험도. Critical / High / Medium / Low
+
+    container: str  # 공격 대상 리소스 (Docker 컨테이너 이름). 예: "vm_webapp_1"
+    objective: str  # 이 시나리오의 공격 목표. 예: "인증 우회를 통한 관리자 권한 획득"
+
+    executed_command: str
+    # 이 시나리오를 재현할 수 있는 예시 명령어 (실제 공격이 아닌 로컬에서의 시뮬레이션).
+    # 예: "curl -X POST http://webapp:80/login -d 'username=admin&password='"
+
+    command_output: str
+    # 위 명령어 실행의 출력 (시뮬레이션된 로그/응답).
+
+    security_finding: str
+    # 이 시나리오가 성공할 경우의 관찰 결과와 보안적 의미를 통합한 분석.
+    # 예: "인증 없이 관리자 세션 획득 가능 → 권한 상승 및 횡적 이동으로 이어질 수 있음"
 
 
 @dataclass
@@ -904,30 +917,16 @@ if COPILOT_AVAILABLE:
         )
 
     class SQLServerAttackParams(BaseModel):
-        target: str = Field(
-            description="SQL Server target IP address or hostname"
-        )
-        port: int = Field(
-            default=1433,
-            description="SQL Server port (default: 1433)"
-        )
+        target: str = Field(description="SQL Server target IP address or hostname")
+        port: int = Field(default=1433, description="SQL Server port (default: 1433)")
 
     class RDPAttackParams(BaseModel):
-        target: str = Field(
-            description="RDP target IP address or hostname"
-        )
-        port: int = Field(
-            default=3389,
-            description="RDP port (default: 3389)"
-        )
+        target: str = Field(description="RDP target IP address or hostname")
+        port: int = Field(default=3389, description="RDP port (default: 3389)")
 
     class StorageScanParams(BaseModel):
-        target: str = Field(
-            description="Storage server IP address or hostname"
-        )
+        target: str = Field(description="Storage server IP address or hostname")
         port: int = Field(
             default=9000,
-            description="Storage HTTP port (MinIO=9000, Azurite=10000, Azure=443)"
+            description="Storage HTTP port (MinIO=9000, Azurite=10000, Azure=443)",
         )
-
-
