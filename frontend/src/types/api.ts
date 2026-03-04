@@ -17,18 +17,6 @@ export interface VulnerabilityItem {
   benchmark_ref?: string;
 }
 
-export interface AttackScenarioItem {
-  id: string;
-  name: string;
-  mitre_technique: string;
-  target_vulnerabilities: string[];
-  severity: 'Critical' | 'High' | 'Medium' | 'Low';
-  prerequisites: string;
-  attack_chain: string[];
-  expected_impact: string;
-  detection_difficulty: string;
-  likelihood: string;
-}
 
 export interface PolicyResult {
   status: 'passed' | 'failed';
@@ -47,11 +35,23 @@ export interface PolicyResult {
   summary: string;
 }
 
+export interface AttackScenario {
+  id: string;
+  mitre_technique: string;
+  severity: 'Critical' | 'High' | 'Medium' | 'Low';
+  container: string;
+  objective: string;
+  executed_command: string;
+  command_output: string;
+  security_finding: string;
+}
+
 export interface SecurityResult {
   final_report: string;
   vulnerability_summary: number;
   severity_counts: Record<string, number>;
   verification_checklist: string[];
+  attack_scenarios: AttackScenario[];
 }
 
 export interface AnalyzeResponse {
