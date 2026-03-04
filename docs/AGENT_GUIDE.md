@@ -101,7 +101,7 @@ python agents/agent.py samples/sample_bicep.bicep
 
 ```python
 import asyncio
-from agents.agent import LocalAttackAgent
+from agents.modelsimport LocalAttackAgent
 
 async def main():
     agent = LocalAttackAgent(use_docker=False)  # Docker 없이 Mock 모드
@@ -261,7 +261,7 @@ GitHub Copilot SDK를 사용하여 동적으로 공격 전략을 수립합니다
 ### 커스텀 공격 전략
 
 ```python
-from agents.agent import AttackOrchestrator, DeploymentInfo
+from agents.modelsimport AttackOrchestrator, DeploymentInfo
 
 orchestrator = AttackOrchestrator()
 
@@ -282,7 +282,7 @@ results = await orchestrator.execute_strategy(
 ### 특정 공격 도구만 실행
 
 ```python
-from agents.agent import NmapScanner, HydraAttacker
+from agents.modelsimport NmapScanner, HydraAttacker
 
 # Nmap만 실행
 nmap = NmapScanner()
@@ -298,7 +298,7 @@ print(result.findings)
 ### Docker Compose 파일 저장
 
 ```python
-from agents.agent import BicepParser, ResourceMapper, DockerComposer
+from agents.modelsimport BicepParser, ResourceMapper, DockerComposer
 
 parser = BicepParser()
 resources, network_config = parser.parse(bicep_code)
@@ -362,7 +362,7 @@ Warning: GitHub Copilot SDK not available. Using fallback strategy.
 
 ```python
 import asyncio
-from agents.agent import LocalAttackAgent
+from agents.modelsimport LocalAttackAgent
 
 async def full_workflow():
     # 1. Agent 초기화

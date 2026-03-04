@@ -111,7 +111,7 @@ if __name__ == "__main__":
 **방법 2: Python 스크립트로 실행**
 ```python
 import asyncio
-from agents.agent import LocalAttackAgent
+from agents.modelsimport LocalAttackAgent
 
 async def main():
     # Docker 사용

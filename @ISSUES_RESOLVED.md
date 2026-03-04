@@ -526,3 +526,119 @@ Low │ [LOW]   │ [MED]      │
 ✅ 검증 우선순위 및 실행 계획 제공
 ✅ 개발자와 아키텍트에게 유용한 정보 제공
 ✅ 컴플라이언스 및 Best Practice 자동 매핑
+
+---
+
+# 코드베이스 리팩토링 (2026-03-04)
+
+## [REFACTOR] 파일명 및 모듈 구조 정리
+
+### 파일 리네이밍
+| 이전 | 이후 | 이유 |
+|------|------|------|
+| `agents/agent.py` | `agents/models.py` | 데이터 클래스/모델 정의 파일임을 명확히 |
+| `agents/new_agent_with_tools.py` | `agents/recon_agent.py` | 역할 기반 명칭 |
+| `agents/new_agent_wrapper_v2.py` | `agents/recon_agent_wrapper.py` | 역할 기반 명칭 |
+| `agents/preflight_agent.py` | `agents/reporting_agent.py` | 역할 기반 명칭 |
+
+### Deprecated 처리
+- `agents/new_agent.py`, `agents/new_agent_wrapper.py` → `agents/deprecated/` 이동
+- 두 파일 모두 활성 코드에서 임포트하지 않음을 확인 후 이동
+
+---
+
+## [REFACTOR] `AttackScenario` 클래스 개선 (`agents/models.py`)
+
+**문제**: 실제 Azure 리소스 공격이 아닌 로컬 시뮬레이션임에도 속성명/주석이 실제 공격 수행을 암시, 중복 속성 존재
+
+**변경**:
+- `observation` + `security_interpretation` → `security_finding` 으로 통합
+  - 둘 다 "시나리오 결과의 해석"으로 역할이 중복
+- `raw_output` → `command_output` 으로 이름 변경
+  - `executed_command`와 명확한 쌍을 이루도록
+- 클래스 docstring 및 각 속성 주석 개선: 로컬 Docker 환경 시뮬레이션임을 명시
+- `mitre_technique` 주석에 MITRE ATT&CK 프레임워크 설명 및 예시 추가
+
+**연쇄 수정**:
+- `agents/recon_agent.py`: 프롬프트 JSON 스키마의 필드명 업데이트
+- `agents/recon_agent_wrapper.py`: `AttackScenario` 생성 시 필드명 업데이트
+
+---
+
+## [REFACTOR] `AttackScenarioItem` 중복 클래스 제거
+
+**문제**: `api/models/response.py`의 `AttackScenarioItem`이 실제 API 응답에 연결되지 않은 사장된 코드
+
+- `SecurityResult`는 `AttackScenario`(dataclass)를 사용 → `AttackScenarioItem`(Pydantic)은 미사용
+- `new_agent_wrapper.py`(deprecated)가 존재하지 않는 필드로 `AttackScenario`를 생성 시도하는 버그 존재
+
+**해결**:
+- `api/models/response.py`: `AttackScenarioItem` 클래스 삭제
+- `api/models/__init__.py`: export 삭제
+- `frontend/src/types/api.ts`: `AttackScenarioItem` 인터페이스 삭제
+
+---
+
+## [REFACTOR] `VulnerabilityItem` 중복 정의 통합
+
+**문제**: `agents/models.py`(dataclass)와 `api/models/response.py`(Pydantic BaseModel)에 동일 필드의 `VulnerabilityItem`이 두 개 존재
+
+**해결**:
+- `api/models/response.py`의 Pydantic 버전 삭제
+- `api/models/__init__.py`에서 `agents.models`의 dataclass를 직접 임포트
+- 단일 소스(`agents/models.py`)로 통합
+
+---
+
+## [FEAT] Recon 공격 시나리오를 통합 보고서(reporting_agent)에 포함
+
+**문제**: `reporting_agent.py`가 recon 취약점(`recon_vulnerabilities`)만 전달받고 공격 시나리오(`attack_scenarios`)는 전달받지 못해 통합 보고서에서 누락
+
+**해결**:
+- `api/routers/analyze.py`: `dataclasses.asdict()`로 attack scenarios를 dict 변환 후 전달
+- `agents/reporting_agent.py`:
+  - `generate_report()` 파라미터에 `recon_attack_scenarios: list[dict]` 추가
+  - 프롬프트 입력에 `RECON ATTACK SCENARIOS` 섹션 추가 (각 필드 설명 포함)
+  - 보고서 템플릿에 `🎯 시뮬레이션 기반 검증 결과` 섹션 삽입 (섹션 3 직후)
+  - fallback 보고서에도 동일 섹션 추가
+
+---
+
+## [REFACTOR] `reporting_agent.py` 프롬프트 이중화 제거
+
+**문제**: `REPORTING_AGENT_INSTRUCTIONS`(system)과 `prompt`(user) 양쪽에 보고서 포맷 템플릿이 중복 존재하며 섹션 구조도 서로 달라 충돌
+
+- Instructions: 7섹션 Korean 구조
+- Prompt: 6섹션 + 공격 시나리오 섹션 (다른 구조)
+
+**해결**:
+- `REPORTING_AGENT_INSTRUCTIONS`: 역할 + 제약 + 언어 규칙 + JSON 출력 스펙만 유지 (~40줄로 축소)
+- `prompt`: 입력 데이터 + 단일 포맷 템플릿 (공격 시나리오 섹션 포함)
+
+---
+
+## [REFACTOR] 내부 변수명 통일
+
+### `agents/reporting_agent.py` (구 `preflight_agent.py`)
+- `PREFLIGHT_AGENT_INSTRUCTIONS` → `REPORTING_AGENT_INSTRUCTIONS`
+- `generate_preflight_report()` → `generate_report()`
+- `PreFlightReportAgent` → `ReportingAgent`
+
+### `agents/recon_agent.py` (구 `new_agent_with_tools.py`)
+- `AGENT_INSTRUCTIONS` → `RECON_AGENT_INSTRUCTIONS`
+- 파일 상단 docstring 업데이트
+- CLI usage 메시지의 구 파일명 참조 수정
+
+### `agents/recon_agent_wrapper.py` (구 `new_agent_wrapper_v2.py`)
+- `invoke_recon_agent as with_tools_convert` → `invoke_recon_agent` (불필요한 alias 제거)
+- 파일 상단 docstring 업데이트
+
+---
+
+## [FEAT] 프론트엔드 타입 동기화 (`frontend/src/types/api.ts`)
+
+**문제**: 백엔드 `SecurityResult`에 `attack_scenarios` 필드가 추가됐으나 프론트엔드 타입에 미반영
+
+**해결**:
+- `AttackScenario` 인터페이스 추가 (백엔드 dataclass 필드와 일치)
+- `SecurityResult`에 `attack_scenarios: AttackScenario[]` 추가
