@@ -144,17 +144,31 @@ Explain why the architecture enables the attack.
 
 6. Risk Prioritization
 
-All risks must be classified using three priority levels:
+All risks must be classified using three priority levels
+based on the following quantitative criteria:
 
-CRITICAL
-HIGH
-MEDIUM
+CRITICAL (CVSS 9.0–10.0)
+- Remote exploitation without authentication
+- Direct data breach or full system compromise
+- Public exposure of secrets, credentials, or management interfaces
+- Complete bypass of security controls
 
-Classification should consider:
+HIGH (CVSS 7.0–8.9)
+- Exploitation requires limited preconditions
+- Significant data exposure or privilege escalation
+- Security controls weakened to the point of ineffectiveness
+- Missing encryption or authentication on sensitive channels
 
-- exploitability
-- potential impact
-- architectural exposure
+MEDIUM (CVSS 4.0–6.9)
+- Exploitation requires specific conditions or insider access
+- Limited data exposure or partial control bypass
+- Security best practices not followed but no direct exploit path
+- Configuration drift from design intent without immediate risk
+
+LOW (CVSS 0.1–3.9)
+- Informational or defense-in-depth improvements
+- Minor configuration deviations
+- No direct exploitability
 
 ------------------------------------------------
 
@@ -483,6 +497,17 @@ REPORT FORMAT
 | 발견된 취약점 | X |
 | Critical Risk | X |
 | Architecture Reproduction Fidelity | XX% |
+
+## 위험 등급 판단 기준
+
+본 보고서의 위험 등급은 CVSS(Common Vulnerability Scoring System) 기반으로 분류됩니다.
+
+| 등급 | CVSS 범위 | 판단 기준 |
+|------|-----------|----------|
+| Critical | 9.0 – 10.0 | 인증 없이 원격 악용 가능, 데이터 유출·전체 시스템 장악, 시크릿/관리 인터페이스 공개 노출, 보안 통제 완전 우회 |
+| High | 7.0 – 8.9 | 제한된 전제 조건 하에서 악용 가능, 권한 상승·민감 데이터 노출, 보안 통제가 무력화 수준으로 약화, 암호화·인증 누락 |
+| Medium | 4.0 – 6.9 | 특정 조건 또는 내부 접근 필요, 제한적 데이터 노출·부분적 통제 우회, 보안 모범 사례 미준수(직접 공격 경로 없음), 설계 의도와의 구성 차이 |
+| Low | 0.1 – 3.9 | 정보 수준·심층 방어 개선 사항, 경미한 구성 편차, 직접적 악용 불가 |
 
 ---
 
@@ -859,6 +884,17 @@ def _fallback_report(
 | Low Risk | {severity_counts['Low']}건 |
 | 공격 시뮬레이션 시나리오 | {len(recon_attack_scenarios)}건 |
 | Architecture Reproduction Fidelity | 데이터 부족으로 산출 불가 |
+
+## 위험 등급 판단 기준
+
+본 보고서의 위험 등급은 CVSS(Common Vulnerability Scoring System) 기반으로 분류됩니다.
+
+| 등급 | CVSS 범위 | 판단 기준 |
+|------|-----------|----------|
+| Critical | 9.0 – 10.0 | 인증 없이 원격 악용 가능, 데이터 유출·전체 시스템 장악, 시크릿/관리 인터페이스 공개 노출 |
+| High | 7.0 – 8.9 | 제한된 전제 조건 하에서 악용 가능, 권한 상승·민감 데이터 노출, 보안 통제 무력화 |
+| Medium | 4.0 – 6.9 | 특정 조건 또는 내부 접근 필요, 제한적 데이터 노출, 보안 모범 사례 미준수 |
+| Low | 0.1 – 3.9 | 정보 수준·심층 방어 개선 사항, 경미한 구성 편차, 직접적 악용 불가 |
 
 ---
 
