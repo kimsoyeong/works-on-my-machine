@@ -7,7 +7,7 @@ import uuid
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from agents.policy_agent import review_bicep_only
-from agents.recon_agent_wrapper import analyze_bicep
+from agents.recon_agent_wrapper import invoke_recon_agent_wrapper
 from agents.reporting_agent import generate_report
 from api.models.response import (
     AnalyzeResponse,
@@ -83,7 +83,7 @@ async def _run_recon(bicep_code: str):
         bicep_code: Bicep 코드
     """
     logger.info(f"🤖 Starting Agent...")
-    result = await analyze_bicep(bicep_code)
+    result = await invoke_recon_agent_wrapper(bicep_code)
 
     vuln_count = len(result.vulnerabilities)
     attack_count = len(result.attack_scenarios)
@@ -173,7 +173,6 @@ async def analyze_architecture(
             policy_recommendations=policy_recommendations,
             recon_vulnerabilities=recon_vuln_dicts,
             recon_attack_scenarios=recon_attack_dicts,
-            recon_report=result.report,
         )
         steps.append(
             StepStatus(

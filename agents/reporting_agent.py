@@ -72,7 +72,6 @@ async def generate_report(
     policy_recommendations: list[dict],
     recon_vulnerabilities: list[dict],
     recon_attack_scenarios: list[dict],
-    recon_report: str,
 ) -> dict:
     """
     PreFlight 통합 보고서 생성 (MAF AzureOpenAIChatClient 기반)
@@ -83,7 +82,6 @@ async def generate_report(
         policy_recommendations: Policy 권장 목록
         recon_vulnerabilities: Recon 취약점 목록 (list of dict)
         recon_attack_scenarios: Recon 시뮬레이션 공격 시나리오 목록 (list of dict)
-        recon_report: Recon 에이전트가 생성한 보고서 텍스트
 
     Returns:
         {
@@ -108,11 +106,27 @@ async def generate_report(
     vuln_text = json.dumps(recon_vulnerabilities, ensure_ascii=False, indent=2)
     attack_text = json.dumps(recon_attack_scenarios, ensure_ascii=False, indent=2)
 
+    if len(violations_text) > 3000:
+        logger.info(
+            f"⚠️ policy_violations 텍스트가 3000자 제한 초과 "
+            f"({len(violations_text)}자) — 프롬프트에서 잘림"
+        )
+    if len(recommendations_text) > 2000:
+        logger.info(
+            f"⚠️ policy_recommendations 텍스트가 2000자 제한 초과 "
+            f"({len(recommendations_text)}자) — 프롬프트에서 잘림"
+        )
+    if len(vuln_text) > 3000:
+        logger.info(
+            f"⚠️ recon_vulnerabilities 텍스트가 3000자 제한 초과 "
+            f"({len(vuln_text)}자) — 프롬프트에서 잘림"
+        )
+
     prompt = f"""
 다음 입력 데이터를 분석하여 PreFlight 통합 보안 보고서를 생성하십시오.
 
 ========== ORIGINAL BICEP CODE ==========
-{bicep_code[:8000]}
+{bicep_code}
 
 ========== POLICY VIOLATIONS ({len(policy_violations)}) ==========
 {violations_text[:3000]}
@@ -134,11 +148,8 @@ that replicates an Azure resource. Fields:
 - executed_command: command used in simulation
 - command_output: output from the command
 - security_finding: combined observation and security interpretation
-{attack_text[:3000]}
 
-========== PREVIOUS RECON REPORT (excerpt) ==========
-{recon_report[:2000]}
-
+{attack_text}
 
 ============================================================
 REPORT FORMAT (STRICT TEMPLATE)
@@ -171,42 +182,33 @@ REPORT FORMAT (STRICT TEMPLATE)
 
 ---
 
-## 1. 🏛️ Original Architecture Security Intent
+## 1. 🛡️ Security Control Integrity Review
 
-원본 Bicep 코드에서 의도된 보안 설계를 항목별로 평가합니다.
+원본 **Azure Bicep 아키텍처의 보안 설계 의도**와  
+변환된 **Docker Compose 구조에서 해당 보안 통제가 유지되는지**를 비교 평가합니다.
 
-| 보안 통제 항목 | Bicep 설정값 / 의도 | 평가 |
-|----------------|---------------------|------|
-| Key Vault networkAcls defaultAction | (실제 값 또는 미설정) | ✅/⚠️/❌ |
-| Storage allowBlobPublicAccess | (실제 값 또는 미설정) | ✅/⚠️/❌ |
-| TLS 최소 버전 | (실제 값 또는 미설정) | ✅/⚠️/❌ |
-| HTTPS Only | (실제 값 또는 미설정) | ✅/⚠️/❌ |
-| Private Endpoint | (사용 여부) | ✅/⚠️/❌ |
-| Private DNS Zone | (사용 여부) | ✅/⚠️/❌ |
-| Soft Delete + Purge Protection | (활성화 여부) | ✅/⚠️/❌ |
+| 보안 통제 항목 | Bicep 설정값 / 의도 | Docker Compose 상태 | 위험도 | 평가 |
+|----------------|---------------------|--------------------|--------|------|
+| Key Vault networkAcls defaultAction | (실제 값 또는 미설정) | 유지 / 약화 / 미적용 | 🔴 / 🔶 / 🔷 / 🟢 | (구체적 분석) |
+| Storage allowBlobPublicAccess | (실제 값 또는 미설정) | 유지 / 약화 / 미적용 | 🔴 / 🔶 / 🔷 / 🟢 | (구체적 분석) |
+| TLS 최소 버전 | (실제 값 또는 미설정) | 유지 / 약화 / 미적용 | 🔴 / 🔶 / 🔷 / 🟢 | (구체적 분석) |
+| HTTPS Only | (실제 값 또는 미설정) | 유지 / 약화 / 미적용 | 🔴 / 🔶 / 🔷 / 🟢 | (구체적 분석) |
+| Private Endpoint | (사용 여부) | 유지 / 약화 / 미적용 | 🔴 / 🔶 / 🔷 / 🟢 | (구체적 분석) |
+| Private DNS Zone | (사용 여부) | 유지 / 약화 / 미적용 | 🔴 / 🔶 / 🔷 / 🟢 | (구체적 분석) |
+| Soft Delete + Purge Protection | (활성화 여부) | 유지 / 약화 / 미적용 | 🔴 / 🔶 / 🔷 / 🟢 | (구체적 분석) |
 
-(각 행의 설정값과 평가를 실제 Bicep 코드 분석 결과로 채울 것)
+### Risk Legend
 
----
-
-## 2. 🔄 Reconstructed / Transformed Structure Review
-
-변환 과정(Bicep → Docker Compose 등)에서 각 보안 통제의 유지 여부를 평가합니다.
-
-| 원본 보안 통제 | 변환 후 상태 | 위험도 | 비고 |
-|----------------|-------------|--------|------|
-| Key Vault networkAcls | 유지/약화/미적용 | 🔴/🔶/🔷/🟢 | (구체적 이유) |
-| Storage 공용 접근 차단 | 유지/약화/미적용 | 🔴/🔶/🔷/🟢 | (구체적 이유) |
-| TLS 1.2 강제 | 유지/약화/미적용 | 🔴/🔶/🔷/🟢 | (구체적 이유) |
-| HTTPS Only | 유지/약화/미적용 | 🔴/🔶/🔷/🟢 | (구체적 이유) |
-| Private Endpoint | 유지/약화/미적용 | 🔴/🔶/🔷/🟢 | (구체적 이유) |
-| Soft Delete / Purge Protection | 유지/약화/미적용 | 🔴/🔶/🔷/🟢 | (구체적 이유) |
+- 🔴 **Critical** — 원본 설계의 핵심 보안 통제가 완전히 제거됨  
+- 🔶 **High** — 통제가 약화되어 공격 가능성 증가  
+- 🔷 **Medium** — 일부 기능은 유지되지만 완전하지 않음  
+- 🟢 **Low / Preserved** — 원본 보안 설계가 대부분 유지됨
 
 (각 행을 실제 변환 결과 분석으로 채울 것)
 
 ---
 
-## 3. ⚠️ Design-Level Security Mismatch Analysis
+## 2. ⚠️ Design-Level Security Mismatch Analysis
 
 설계 수준 보안 불일치를 항목별로 분석합니다.
 **⚠️ 모든 항목은 반드시 조건부 표현으로 작성할 것.**
@@ -222,7 +224,7 @@ REPORT FORMAT (STRICT TEMPLATE)
 
 ---
 
-## 🎯 시뮬레이션 기반 검증 결과
+## 3. 🎯 시뮬레이션 기반 검증 결과
 
 로컬 Docker 환경에서 수행된 공격 시나리오 시뮬레이션 결과입니다.
 실제 Azure 리소스에 대한 공격이 아닌, 동등한 구성을 로컬에 재현하여 설계 취약점을 확인한 결과입니다.
@@ -445,7 +447,7 @@ def _fallback_report(
         "배포 환경의 네트워크 NSG/방화벽 규칙 검토",
     ]
 
-    final_report = f"""# 🔍 PreFlight 통합 보안 보고서
+    final_report = f"""# 🔍 PreFlight 통합 보안 보고서 (Fallback)
 
 ## 📊 Executive Summary
 
@@ -471,37 +473,31 @@ def _fallback_report(
 
 ---
 
-## 1. 🏛️ Original Architecture Security Intent
+## 1. 🛡️ Security Control Integrity Review
 
-원본 Bicep 코드 기반 보안 설계 의도를 분석합니다.
+원본 **Azure Bicep 아키텍처의 보안 설계 의도**와  
+**Bicep → Docker Compose 변환 과정에서 해당 보안 통제가 유지되는지**를 통합적으로 분석합니다.
 
-| 보안 통제 항목 | Bicep 설정값 / 의도 | 평가 |
-|----------------|---------------------|------|
-| Key Vault networkAcls defaultAction | Deny | ⚠️ 확인 필요 |
-| Storage allowBlobPublicAccess | false | ⚠️ 확인 필요 |
-| TLS 최소 버전 | TLS1_2 | ⚠️ 확인 필요 |
-| HTTPS Only | true | ⚠️ 확인 필요 |
-| Private Endpoint | 사용 여부 미확인 | ⚠️ 확인 필요 |
-| Private DNS Zone | 사용 여부 미확인 | ⚠️ 확인 필요 |
-| Soft Delete + Purge Protection | 활성화 여부 미확인 | ⚠️ 확인 필요 |
+| 보안 통제 항목 | Bicep 설정값 / 의도 | Docker Compose 상태 | 위험도 | 평가 / 비고 |
+|----------------|---------------------|--------------------|--------|-------------|
+| Key Vault networkAcls defaultAction | Deny | 미확인 | 🔶 | Docker 네트워크 정책 또는 내부 네트워크 격리로 대응 필요 |
+| Storage allowBlobPublicAccess | false | 미확인 | 🔶 | 컨테이너 볼륨 권한 또는 접근 제어 설정 필요 |
+| TLS 최소 버전 | TLS1_2 | 미확인 | 🔶 | 컨테이너 서비스 TLS 설정으로 강제 필요 |
+| HTTPS Only | true | 미확인 | 🔶 | 서비스 레벨 HTTPS 리디렉션 또는 TLS termination 필요 |
+| Private Endpoint | 사용 여부 미확인 | 미확인 | 🔴 | 내부 Docker 네트워크 또는 private service 구성 필요 |
+| Private DNS Zone | 사용 여부 미확인 | 미확인 | 🔷 | Docker 내부 DNS 또는 service name resolution으로 일부 대체 가능 |
+| Soft Delete + Purge Protection | 활성화 여부 미확인 | 미적용 | 🔷 | 클라우드 전용 기능으로 로컬 환경에서는 직접 대응 구조 부재 가능 |
 
----
+### Risk Legend
 
-## 2. 🔄 Reconstructed / Transformed Structure Review
-
-Bicep → Docker Compose 변환 과정에서 보안 통제 유지 여부를 검토합니다.
-
-| 원본 보안 통제 | 변환 후 상태 | 위험도 | 비고 |
-|----------------|-------------|--------|------|
-| Key Vault networkAcls | 미확인 | 🔶 | Docker 네트워크 정책으로 대응 필요 |
-| Storage 공용 접근 차단 | 미확인 | 🔶 | 컨테이너 볼륨 권한 설정으로 대응 필요 |
-| TLS 1.2 강제 | 미확인 | 🔶 | 컨테이너 서비스 TLS 설정으로 대응 필요 |
-| Private Endpoint | 미확인 | 🔴 | 내부 Docker 네트워크로 대응 필요 |
-| Soft Delete / Purge Protection | 미적용 | 🔷 | 클라우드 전용 기능 — 대응 구조 부재 가능성 |
+- 🔴 **Critical** — 원본 설계의 핵심 보안 통제가 완전히 제거됨  
+- 🔶 **High** — 통제가 약화되어 공격 가능성 증가  
+- 🔷 **Medium** — 일부 기능은 유지되지만 완전하지 않음  
+- 🟢 **Low / Preserved** — 원본 보안 설계가 대부분 유지됨
 
 ---
 
-## 3. ⚠️ Design-Level Security Mismatch Analysis
+## 2. ⚠️ Design-Level Security Mismatch Analysis
 
 **Policy 위반 항목:**
 {vuln_lines}
@@ -512,7 +508,7 @@ This may increase exposure to unauthorized network access if whitelist-based acc
 
 ---
 
-## 🎯 시뮬레이션 기반 검증 결과
+## 3. 🎯 시뮬레이션 기반 검증 결과
 
 로컬 Docker 환경에서 수행된 공격 시나리오 시뮬레이션 결과입니다.
 실제 Azure 리소스에 대한 공격이 아닌, 동등한 구성을 로컬에 재현하여 설계 취약점을 확인한 결과입니다.

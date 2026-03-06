@@ -5,36 +5,6 @@ export interface StepStatus {
   message?: string;
 }
 
-export interface VulnerabilityItem {
-  id: string;
-  severity: 'Critical' | 'High' | 'Medium' | 'Low';
-  category: string;
-  affected_resource: string;
-  title: string;
-  description: string;
-  evidence: string;
-  remediation: string;
-  benchmark_ref?: string;
-}
-
-
-export interface PolicyResult {
-  status: 'passed' | 'failed';
-  violations: Array<{
-    rule: string;
-    severity: string;
-    message: string;
-    recommendation: string;
-  }>;
-  recommendations: Array<{
-    rule: string;
-    severity: string;
-    message: string;
-    recommendation: string;
-  }>;
-  summary: string;
-}
-
 export interface AttackScenario {
   id: string;
   mitre_technique: string;

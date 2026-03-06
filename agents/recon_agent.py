@@ -5,21 +5,23 @@ Bicep 코드를 Docker Compose로 변환하여 로컬 환경을 구성하고,
 보안 시뮬레이션을 수행하여 취약점 및 공격 시나리오를 분석한다.
 """
 
-import asyncio
-import json
-import logging
 import os
-from pathlib import Path
-from typing import Annotated, List, Dict, Any
-from pydantic import BaseModel, Field
-
-from agent_framework.github import GitHubCopilotAgent
-
-# 기존 agent.py의 컴포넌트 재사용
+import re
 import sys
-import os
+import time
+import logging
+import subprocess
+from pathlib import Path
+from pydantic import BaseModel, Field
+from typing import Annotated, List, Dict, Any
+
+
+from agent_framework import tool, Message, Content
+from agent_framework.github import GitHubCopilotAgent
+from agent_framework.azure import AzureOpenAIChatClient
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
 from agents.models import (
     BicepParser,
     ResourceMapper,
@@ -86,6 +88,27 @@ class GenerateComposeOutput(BaseModel):
     warnings: List[str] = []
 
 
+class ConvertBicepToComposeInput(BaseModel):
+    """Bicep → Docker Compose 변환 도구 입력"""
+
+    bicep_code: str = Field(
+        description="Bicep code content to convert to Docker Compose"
+    )
+    output_path: str = Field(
+        default="docker-compose.yml",
+        description="Output file path for docker-compose.yml",
+    )
+
+
+class ConvertBicepToComposeOutput(BaseModel):
+    """Bicep → Docker Compose 변환 도구 출력"""
+
+    success: bool
+    compose_yaml: str | None = None
+    file_path: str | None = None
+    error: str | None = None
+
+
 class SaveComposeFileInput(BaseModel):
     """Docker Compose 파일 저장 도구 입력"""
 
@@ -125,6 +148,7 @@ class DeployDockerComposeOutput(BaseModel):
 # ============================================================
 
 
+@tool(approval_mode="never_require")
 def read_bicep_file(
     input_data: Annotated[ReadBicepFileInput, "Input for reading Bicep file"],
 ) -> ReadBicepFileOutput:
@@ -138,6 +162,8 @@ def read_bicep_file(
         파일 내용 또는 에러 메시지
     """
     try:
+        logger.info(f"⚒️ [Tool] Reading Bicep file...")
+
         # dict로 전달될 경우 처리
         if isinstance(input_data, dict):
             input_data = ReadBicepFileInput(**input_data)
@@ -152,14 +178,15 @@ def read_bicep_file(
         with open(file_path, "r", encoding="utf-8") as f:
             bicep_code = f.read()
 
-        logger.info(f"✅ Successfully read Bicep file: {input_data.file_path}")
+        logger.info(f"✅ [Tool] Successfully read Bicep file: {input_data.file_path}")
         return ReadBicepFileOutput(success=True, bicep_code=bicep_code)
 
     except Exception as e:
-        logger.error(f"❌ Error reading Bicep file: {e}")
+        logger.error(f"❌ [Tool] Error reading Bicep file: {e}")
         return ReadBicepFileOutput(success=False, error=str(e))
 
 
+@tool(approval_mode="never_require")
 def parse_bicep(
     input_data: Annotated[ParseBicepInput, "Input for parsing Bicep code"],
 ) -> ParseBicepOutput:
@@ -173,6 +200,7 @@ def parse_bicep(
         파싱된 리소스 목록과 네트워크 설정
     """
     try:
+        logger.info("⚒️ [Tool] Parsing Bicep code...")
         # dict로 전달될 경우 처리
         if isinstance(input_data, dict):
             input_data = ParseBicepInput(**input_data)
@@ -197,7 +225,7 @@ def parse_bicep(
             "public_ips": network_config.public_ips,
         }
 
-        logger.info(f"✅ Successfully parsed {len(resources)} resources")
+        logger.info(f"✅ [Tool] Successfully parsed {len(resources)} resources")
 
         warnings = []
         if not resources:
@@ -211,10 +239,11 @@ def parse_bicep(
         )
 
     except Exception as e:
-        logger.error(f"❌ Error parsing Bicep code: {e}")
+        logger.error(f"❌ [Tool] Error parsing Bicep code: {e}")
         return ParseBicepOutput(success=False, error=str(e))
 
 
+@tool(approval_mode="never_require")
 def generate_compose(
     input_data: Annotated[GenerateComposeInput, "Input for generating Docker Compose"],
 ) -> GenerateComposeOutput:
@@ -228,6 +257,10 @@ def generate_compose(
         Docker Compose YAML 문자열
     """
     try:
+        logger.info(
+            "⚒️ [Tool] Generating Docker Compose YAML from parsed Bicep resources"
+        )
+
         # dict로 전달될 경우 처리
         if isinstance(input_data, dict):
             input_data = GenerateComposeInput(**input_data)
@@ -260,7 +293,7 @@ def generate_compose(
         service_names = list(service_mapping.keys())
 
         logger.info(
-            f"✅ Successfully generated Docker Compose with {len(service_names)} services"
+            f"✅ [Tool] Successfully generated Docker Compose with {len(service_names)} services"
         )
 
         warnings = []
@@ -275,10 +308,58 @@ def generate_compose(
         )
 
     except Exception as e:
-        logger.error(f"❌ Error generating Docker Compose: {e}")
+        logger.error(f"❌ [Tool] Error generating Docker Compose: {e}")
         return GenerateComposeOutput(success=False, error=str(e))
 
 
+@tool(approval_mode="never_require")
+async def convert_bicep_to_compose(
+    input_data: Annotated[
+        ConvertBicepToComposeInput,
+        "Input for converting Bicep code to Docker Compose via LLM",
+    ],
+) -> ConvertBicepToComposeOutput:
+    """
+    Bicep 코드를 LLM을 사용하여 Docker Compose YAML로 변환하고 파일로 저장합니다.
+
+    Args:
+        input_data: Bicep 코드와 출력 경로를 포함한 입력
+
+    Returns:
+        생성된 Docker Compose YAML 및 저장 경로
+    """
+    try:
+        logger.info("⚒️ [Tool] Converting Bicep to Docker Compose via LLM...")
+
+        if isinstance(input_data, dict):
+            input_data = ConvertBicepToComposeInput(**input_data)
+
+        output_path = Path(input_data.output_path)
+        project_root = output_path.parent
+        output_filename = output_path.name
+
+        compose_yaml = await _convert_bicep_to_compose(
+            bicep_code=input_data.bicep_code,
+            project_root=project_root,
+            output_filename=output_filename,
+        )
+
+        logger.info(
+            f"✅ [Tool] Docker Compose generated and saved to: {output_path.absolute()}"
+        )
+
+        return ConvertBicepToComposeOutput(
+            success=True,
+            compose_yaml=compose_yaml,
+            file_path=str(output_path.absolute()),
+        )
+
+    except Exception as e:
+        logger.error(f"❌ [Tool] Error converting Bicep to Docker Compose: {e}")
+        return ConvertBicepToComposeOutput(success=False, error=str(e))
+
+
+@tool(approval_mode="never_require")
 def save_compose_file(
     input_data: Annotated[SaveComposeFileInput, "Input for saving Compose file"],
 ) -> SaveComposeFileOutput:
@@ -292,6 +373,8 @@ def save_compose_file(
         저장 결과
     """
     try:
+        logger.info(f"⚒️ [Tool] Saving Docker Compose file...")
+
         # dict로 전달될 경우 처리
         if isinstance(input_data, dict):
             input_data = SaveComposeFileInput(**input_data)
@@ -305,7 +388,7 @@ def save_compose_file(
             f.write(input_data.compose_yaml)
 
         logger.info(
-            f"✅ Successfully saved Docker Compose to: {output_path.absolute()}"
+            f"✅ [Tool] Successfully saved Docker Compose to: {output_path.absolute()}"
         )
 
         return SaveComposeFileOutput(
@@ -313,10 +396,11 @@ def save_compose_file(
         )
 
     except Exception as e:
-        logger.error(f"❌ Error saving Docker Compose file: {e}")
+        logger.error(f"❌ [Tool] Error saving Docker Compose file: {e}")
         return SaveComposeFileOutput(success=False, error=str(e))
 
 
+@tool(approval_mode="never_require")
 def deploy_docker_compose(
     input_data: Annotated[
         DeployDockerComposeInput, "Input for deploying Docker Compose"
@@ -332,6 +416,8 @@ def deploy_docker_compose(
         배포 결과 및 생성된 컨테이너 목록
     """
     try:
+        logger.info(f"⚒️ [Tool] Start deploying Docker Compose...")
+
         # dict로 전달될 경우 처리
         if isinstance(input_data, dict):
             input_data = DeployDockerComposeInput(**input_data)
@@ -344,11 +430,27 @@ def deploy_docker_compose(
                 error=f"Docker Compose file not found: {input_data.compose_file_path}",
             )
 
-        logger.info(f"🚀 Deploying Docker Compose from: {compose_file}")
+        logger.info(f"🧹 [Tool] Start Cleanup completed...")
+
+        # docker-compose up 실행 전에 기존 컨테이너 정리
+        cleanup = subprocess.run(
+            [
+                "docker-compose",
+                "-f",
+                str(compose_file),
+                "down",
+                "--remove-orphans",
+                "--volumes",
+            ],
+            capture_output=True,
+            text=True,
+            cwd=compose_file.parent,
+        )
+        logger.info(f"🧹 [Tool] Cleanup completed: {cleanup.stdout.strip()}")
+
+        logger.info(f"🚀 [Tool] Deploying Docker Compose from: {compose_file}")
 
         # docker-compose up -d 실행
-        import subprocess
-
         result = subprocess.run(
             ["docker-compose", "-f", str(compose_file), "up", "-d"],
             capture_output=True,
@@ -356,8 +458,11 @@ def deploy_docker_compose(
             cwd=compose_file.parent,
         )
 
+        logger.info("⏳ [Tool] Waiting for containers to initialize...")
+        time.sleep(15)
+
         if result.returncode != 0:
-            logger.error(f"❌ Docker Compose deployment failed: {result.stderr}")
+            logger.error(f"❌ [Tool] Docker Compose deployment failed: {result.stderr}")
             return DeployDockerComposeOutput(
                 success=False, error=f"Deployment failed: {result.stderr}"
             )
@@ -376,7 +481,7 @@ def deploy_docker_compose(
             if line.strip()
         ]
 
-        logger.info(f"✅ Successfully deployed {len(containers)} containers")
+        logger.info(f"✅ [Tool] Successfully deployed {len(containers)} containers")
 
         return DeployDockerComposeOutput(
             success=True,
@@ -386,20 +491,21 @@ def deploy_docker_compose(
 
     except FileNotFoundError:
         logger.error(
-            "❌ docker-compose command not found. Please install Docker Compose."
+            "❌ [Tool] docker-compose command not found. Please install Docker Compose."
         )
         return DeployDockerComposeOutput(
             success=False,
             error="docker-compose command not found. Please install Docker Compose.",
         )
     except Exception as e:
-        logger.error(f"❌ Error deploying Docker Compose: {e}")
+        logger.error(f"❌ [Tool] Error deploying Docker Compose: {e}")
         return DeployDockerComposeOutput(success=False, error=str(e))
 
 
 # ============================================================
 # Agent Instructions
 # ============================================================
+
 
 RECON_AGENT_INSTRUCTIONS = """
 You are a Security Architecture Validation Agent with controlled CLI execution capability.
@@ -419,100 +525,105 @@ You MUST operate deterministically and efficiently.
 PHASE 1 — Infrastructure Deployment (Use Tools Only)
 ============================================================
 
-You MUST execute tools in this exact order:
+Execute tools in this exact order:
 
 1. read_bicep_file
-2. parse_bicep
-3. generate_compose
-4. save_compose_file
-5. deploy_docker_compose
+2. convert_bicep_to_compose
+3. deploy_docker_compose
 
 If deployment fails:
 - STOP immediately
-- Return JSON with error inside report field
+- Return JSON with error
 - Do not proceed to validation phase
+
+Container startup failures (e.g., missing env vars, wrong architecture, image pull errors)
+are infrastructure misconfigurations, NOT attack scenarios.
+Record them as `vulnerabilities` entries with appropriate severity.
+Do NOT include PHASE 1 tool outputs in `attack_scenarios`.
 
 ============================================================
 PHASE 2 — Controlled Security Validation (Evidence-Based)
 ============================================================
 
-This is NOT a full penetration test.
 This is a controlled exposure validation step.
+You MUST verify the security of the architecture by running commands directly.
 
-STRICT RULES:
+### PHASE 2 PRECONDITION
+Only test containers that are CONFIRMED RUNNING after deploy_docker_compose succeeded.
+If a container failed to start, skip it entirely in PHASE 2 — document the failure
+as a `vulnerability` instead.
 
-- Only scan localhost or 172.20.x.x
+### TARGETS
+- localhost or 172.20.x.x ONLY
 - NEVER scan external IPs
-- Max 5 CLI commands per container
-- Each command must use timeout flags
-- Skip containers with no exposed ports
-- If a tool is unavailable, skip it
-- Do NOT repeat commands
-- Do NOT perform brute force
-- Do NOT run heavy scanners
-- Do NOT run recursive scans
+- **HARD STOP — No exposed ports = Skip entirely:**
+  If a container has NO `ports:` mapping in docker-compose.yml,
+  DO NOT test it at all. Do NOT use docker exec or any other method.
+  Do NOT create any SCN entry for it.
+  Simply document it in `vulnerabilities` as "No exposed attack surface" (Low severity).
 
-Allowed commands only:
+### COMMANDS (allowed set)
 
-Port scan:
-nmap -Pn -T4 --host-timeout 20s -p <port> localhost
+1. Port scan: nmap -Pn -T4 --host-timeout 20s -p <port> localhost
+2. HTTP check: curl --max-time 5 -I http://localhost:<port>
+3. Banner grab: nc -w 3 localhost <port>
+4. Container inspection: docker inspect <container>
+5. Credential test (max 1 attempt, only if credentials found):
+   hydra -l <user> -p <password> -f -t 4 -W 3 <protocol>://localhost:<port>
+6. SQL injection probe (max 1 attempt, only if HTTP + query params confirmed):
+   sqlmap -u "http://localhost:<port>/<endpoint>" --batch --level=1 --risk=1 --timeout=5 --crawl=0 --technique=BEUST --time-sec=3
 
-HTTP check:
-curl --max-time 5 -I http://localhost:<port>
+IMPORTANT: `executed_command` in attack_scenarios MUST be exactly one of the 6 commands above.
+`docker exec` IS STRICTLY FORBIDDEN — do not use it under any circumstances.
+Any other command — including `docker exec`, `docker compose`, `docker-compose`,
+`docker run`, `docker build`, `ping`, or shell scripts — is NOT permitted.
+If no allowed command yields meaningful output, the attack_scenarios list for
+that container must be empty.
 
-Banner grab:
-nc -w 3 localhost <port>
+### EXECUTION REQUIREMENTS
 
-Docker inspection:
-docker inspect <container>
+#### Minimum depth per container:
+- MUST run at least 3 commands per exposed container
+- Recommended flow per container:
+  Step 1: Discover  → nmap or nc (port/service confirmation)
+  Step 2: Inspect   → docker inspect (env vars, network, config)
+  Step 3: Interact  → curl, hydra, or sqlmap (based on Step 1-2 findings)
 
-Conditional lightweight authentication testing (ONLY if service is confirmed):
+#### Discovery-to-Verification chaining (MANDATORY):
+When a previous step reveals a security-relevant finding, you MUST verify it in a subsequent step within the SAME scenario or a new scenario.
 
-Hydra (limit attempts strictly):
-hydra -l <user> -p <password> -f -t 4 -W 3 <protocol>://localhost:<port>
+Chaining rules:
+- docker inspect reveals credentials → MUST attempt login with those exact credentials (hydra or curl)
+- Port confirmed open + HTTP service detected → MUST send at least one HTTP request (curl)
+- Environment variable contains token/password → MUST use that token/password to test access
+- SQL service confirmed + credentials found → MUST attempt SQL connection or auth test
 
-SQL injection probe (lightweight only):
-sqlmap -u "http://localhost:<port>/<endpoint>" --batch --level=1 --risk=1 --timeout=5 --crawl=0 --technique=BEUST --time-sec=3
+If verification is skipped, you MUST state the reason (e.g., "tool unavailable", "service not responding").
 
-STRICT CONDITIONS:
+#### MITRE mapping rule (MANDATORY):
+Choose technique based on WHAT THE COMMAND DOES, not what you hope to find:
 
-- hydra MAY be used ONLY if:
-  - A login service is confirmed
-  - Credentials are found in environment variables
-  - The service appears to allow unauthenticated login attempts
-  - Maximum 5 total attempts
-  - No wordlists
-  - No brute-force mode
+- Command uses NO credentials (nmap, nc, curl without auth headers/tokens) → T1046
+- Command EXTRACTS credentials from env/config (docker inspect only) → T1552
+- Command USES a known credential to access a service (curl with token, hydra, sqlcmd with password) → T1078
+- Command TESTS a credential against a login protocol (hydra, brute-force attempt) → T1110
+- Command EXPLOITS a service vulnerability (sqlmap, command injection) → T1190
 
-- sqlmap MAY be used ONLY if:
-  - An HTTP service is confirmed
-  - Query parameters are present
-  - Potential injection indicators observed
-  - Must use --level=1 and --risk=1
-  - No crawling
-  - No tamper scripts
-  - Single endpoint only
+Simple test: Does your command contain a password, token, or auth header?
+  No  → T1046 or T1552 (depending on whether it reads credentials)
+  Yes → T1078 or T1110 (depending on whether credential is known vs guessed)
 
-GLOBAL LIMITS:
+If your executed_command does not match the MITRE technique, change the technique to match what you actually did.
 
-- Do not exceed 5 CLI commands per container
-- Use timeout flags for every command
-- Skip heavy scanning
-- No recursive scanning
-- No full port scans
-- No large wordlists
-- No DoS-like behavior
-
-Focus ONLY on:
-
-- Open ports
-- Public exposure
-- Version disclosure
-- Unauthenticated access
-- Default credentials in environment variables
-- Sensitive config exposure
-- Confirmed weak authentication
-- Confirmed injection exposure
+### GLOBAL LIMITS
+- Maximum 10 commands per container
+- Minimum 3 commands per container (if container has exposed ports)
+- All commands MUST include timeout flags
+- No brute force, wordlists, recursive scans
+- No full port range scans
+- Do NOT repeat identical commands
+- Do NOT send excessive requests that could overload target services
+- NEVER use `docker exec` — running commands inside containers is not an attack simulation tool
 
 ============================================================
 ATTACK SCENARIO DOCUMENTATION RULES
@@ -520,53 +631,51 @@ ATTACK SCENARIO DOCUMENTATION RULES
 
 You MUST document ONLY attacks that were ACTUALLY executed.
 
-Each attack_scenario MUST have a unique ID in this format:
-SCN-001, SCN-002, SCN-003 ...
+Each attack_scenario MUST have a unique ID: SCN-001, SCN-002, SCN-003 ...
 
-The report section "실제 수행된 보안 검증 결과"
-MUST reference the exact SCN IDs from attack_scenarios.
+### STRICT EVIDENCE RULES:
 
-For every attack_scenario entry:
+1. security_finding MUST be derived ONLY from command_output of THAT scenario
+   - Do NOT reference findings from other scenarios or other phases
+   - Do NOT infer results from docker inspect in a curl scenario
+   - If you need to combine findings, create a separate scenario with its own command
 
-You MUST include:
+2. command_output MUST be:
+   - Direct copy from executed command
+   - Truncated at 500 chars with "...[truncated]" if longer
+   - NEVER fabricated or paraphrased
 
-- id (SCN-XXX format)
-- container
-- objective
-- executed_command
-- command_output (truncate if longer than 500 characters, add "...[truncated]")
-- security_finding (observation과 security_interpretation을 통합한 단일 필드)
-- severity (Critical / High / Medium / Low)
+3. One scenario = one executed command
+   - If you ran 5 commands on a container, create up to 5 scenarios
+   - Do NOT merge multiple command outputs into one scenario
 
-command_output MUST be:
-- Direct output from the executed command
-- Not modified except for truncation
-- Maximum 500 characters
+4. MITRE technique MUST match the actual command:
+   - curl/nc without credentials → T1046 (Discovery) not T1110
+   - docker inspect showing env vars → T1552 only if credentials found
+   - curl with credentials → T1078 (Valid Accounts) or T1110
 
-You MUST NOT:
-
-- Describe hypothetical attacks
-- Invent attack paths
-- Describe exploitation that was not executed
-- Include speculative multi-step attack chains
-- Simulate attack results
+### FORBIDDEN:
+- `docker exec` in any form — this is NOT an attack simulation command
+- Hypothetical or speculative attacks
+- Invented attack paths or outputs
+- Multi-step chains that were not actually executed
+- Simulated results
+- Any `docker exec`, `docker compose`, `docker-compose`, `docker run`, `docker build`,
+  or other container management commands — these are NOT attack scenario entries
+- PHASE 1 tool outputs (deployment errors, env var warnings, image pull failures,
+  architecture errors) — record those as `vulnerabilities`, never as `attack_scenarios`
+- MITRE techniques outside the allowed set (only T1046/T1552/T1078/T1110/T1190)
 
 If no meaningful exposure is found:
 - attack_scenarios must be an empty list
-- The report section "실제 수행된 보안 검증 결과" must explicitly state that no exploitable exposure was identified
 
 ============================================================
 PHASE 3 — Design-Phase Risk Analysis
 ============================================================
 
-Based on:
+Based on Bicep configuration, Docker configuration, and CLI validation results.
 
-- Bicep configuration
-- Docker configuration
-- CLI validation results
-
-Identify design risks such as:
-
+Identify design risks:
 - Hardcoded credentials
 - Public network exposure
 - Missing authentication
@@ -575,52 +684,32 @@ Identify design risks such as:
 - Weak segmentation
 - Insecure defaults
 
-This is DESIGN RISK ANALYSIS.
-Not exploit narration.
-
-============================================================
-RISK CLASSIFICATION
-============================================================
-
-Severity must be one of:
-
-- Critical
-- High
-- Medium
-- Low
-
-Guidance:
+### SEVERITY CLASSIFICATION
 
 Critical:
-- Default credentials accessible
-- Unauthenticated admin access
-- Database publicly exposed
+- Default credentials confirmed accessible (verified by login attempt)
+- Unauthenticated admin access confirmed
+- Database publicly exposed with weak credentials
 
 High:
-- Sensitive service exposed without protection
-- Detailed version disclosure on public interface
+- Credentials found in env vars (not yet verified as exploitable)
+- Service exposed without TLS on sensitive port
 - Privileged container configuration
 
 Medium:
 - Open but non-sensitive service exposure
-- Missing TLS
+- Missing TLS on non-sensitive service
 - Excessive metadata exposure
 
 Low:
 - Informational misconfiguration
 
 ============================================================
-OUTPUT REQUIREMENTS (STRICT)
+OUTPUT (STRICT JSON ONLY)
 ============================================================
 
 Your FINAL response must be ONLY a JSON object.
-
-No markdown outside JSON.
-No explanations.
-No prefix.
-No suffix.
-
-Structure:
+No markdown. No explanations. No prefix. No suffix.
 
 {
   "vulnerabilities": [
@@ -631,19 +720,21 @@ Structure:
       "category": "...",
       "affected_resource": "...",
       "description": "...",
-      "remediation": "..."
+      "evidence": "...",
+      "remediation": "...",
+      "benchmark_ref": "N/A"
     }
   ],
   "attack_scenarios": [
     {
-      "id": "SCN-001",  # Scenario identifier (e.g., "SCN-001")
-      "mitre_technique": "...",  # MITRE ATT&CK framework technique ID. Represents the technique under which detected vulnerabilities are classified from an attacker's perspective. Examples: "T1190" (Exploit Public-Facing Application), "T1552" (Unsecured Credentials)
-      "container": "...",  # Target resource name for attack (Docker container name). Example: "vm_webapp_1"
-      "objective": "...",  # Attack goal of this scenario. Example: "Obtain admin privileges through authentication bypass"
-      "executed_command": "...",  # Example command to reproduce this scenario (simulated locally, not actual attack). Example: "curl -X POST http://webapp:80/login -d 'username=admin&password='"
-      "command_output": "...",  # Output of the executed command above (simulated logs/response)
-      "security_finding": "...",  # Analysis combining observation results and security implications if this scenario succeeds. Example: "Admin session acquisition without authentication → can lead to privilege escalation and lateral movement"
-      "severity": "Critical/High/Medium/Low"  # Risk level if this scenario is realized
+      "id": "SCN-001",
+      "mitre_technique": "...",
+      "severity": "Critical/High/Medium/Low",
+      "container": "...",
+      "objective": "...",
+      "executed_command": "...",
+      "command_output": "...",
+      "security_finding": "..."
     }
   ],
   "vulnerability_summary": {
@@ -651,107 +742,8 @@ Structure:
     "High": 0,
     "Medium": 0,
     "Low": 0
-  },
-  "report": "Korean security validation report"
+  }
 }
-
-============================================================
-KOREAN REPORT FORMAT (STRICT TEMPLATE)
-============================================================
-
-The "report" field MUST strictly follow this Markdown structure:
-
-# 🛡️ 보안 검증 및 설계 위험 분석 보고서
-
-## 1. Executive Summary
-- Critical: X
-- High: Y
-- Medium: Z
-- Low: W
-
-### 핵심 보안 요약
-- 가장 중요한 보안 문제 1~3줄 요약
-
----
-
-## 2. 배포 아키텍처 개요
-- 분석 대상 Bicep 리소스 수:
-- 배포된 컨테이너 수:
-- 노출된 포트:
-- 외부 접근 가능 서비스:
-
----
-
-## 3. 실제 수행된 보안 검증 결과
-
-(attack_scenarios 항목과 반드시 일치해야 함)
-
-### SCN-XXX: [검증 목적]
-
-- 대상 컨테이너:
-- 실행 명령어:
-- 실행 결과:
-- 보안 해석:
-- 위험도:
-
-(반복)
-
-※ 실제 실행하지 않은 공격은 절대 기술하지 말 것.
-
----
-
-## 4. 설계 기반 위험 분석
-
-### RISK-XXX: [위험 제목]
-- 영향 리소스:
-- 위험 설명:
-- 설계상 문제점:
-- 권장 개선 방안:
-- 위험도:
-
-(반복)
-
----
-
-## 5. 우선 조치 권고사항
-
-### P0 (즉시 조치 필요)
-- 항목 요약
-
-### P1 (단기 조치)
-- 항목 요약
-
-### P2 (구조 개선 권고)
-- 항목 요약
-
-============================================================
-FORMAT RULES
-============================================================
-
-- Do NOT add additional sections
-- Do NOT include ASCII art
-- Do NOT include long tables
-- Keep each section concise
-- Total report length must remain reasonable
-- All attack references must match attack_scenarios JSON entries
-
-============================================================
-EXECUTION CONTROL
-============================================================
-
-- Avoid redundant scanning.
-- Do not exceed allowed commands.
-- Truncate long outputs.
-- Complete efficiently.
-- Maintain deterministic behavior.
-
-============================================================
-PRIMARY GOAL
-============================================================
-
-Provide early-stage architectural security validation
-with verifiable execution evidence
-and structured remediation guidance.
 """
 
 # ============================================================
@@ -759,7 +751,7 @@ and structured remediation guidance.
 # ============================================================
 
 
-async def invoke_recon_agent(
+async def run_recon_agent(
     bicep_file_path: str, output_path: str = "docker-compose.yml"
 ):
     """
@@ -771,107 +763,350 @@ async def invoke_recon_agent(
     """
     logger.info(f"🔄 Invoking agent for: {bicep_file_path}")
 
+    # --- 사전 처리 (Agent 도구 루프 밖) ---
+    bicep_content = Path(bicep_file_path).read_text(encoding="utf-8")
+    logger.info("✅ Bicep file read successfully.")
+
+    output_path_obj = Path(output_path)
+    await _convert_bicep_to_compose(
+        bicep_code=bicep_content,
+        project_root=(
+            output_path_obj.parent if output_path_obj.parent != Path(".") else None
+        ),
+        output_filename=output_path_obj.name,
+    )
+    compose_file_path = str(output_path_obj.absolute())
+    logger.info(f"✅ Docker Compose file prepared at: {compose_file_path}")
+
+    # --- Agent 실행 (deploy_docker_compose 도구만 사용) ---
     agent = GitHubCopilotAgent(
         default_options={
             "instructions": RECON_AGENT_INSTRUCTIONS,
-            "model": "claude-sonnet-4.5",
-            "timeout": 600,  # 10분 타임아웃 (배포 + 공격 + JSON 생성)
+            "model": "sonnet-4.5",
+            "timeout": 900,  # 15분 타임아웃 (배포 + 공격 + JSON 생성)
+            "on_permission_request": lambda req, ctx: {"kind": "approved", "rules": []},
         },
         tools=[
-            read_bicep_file,
-            parse_bicep,
-            generate_compose,
-            save_compose_file,
             deploy_docker_compose,
         ],
     )
 
     async with agent:
         prompt = f"""
-Convert the Bicep file at '{bicep_file_path}' to Docker Compose,
-deploy it, and perform controlled security validation.
+The Docker Compose file has already been prepared at '{compose_file_path}'.
+Proceed directly to deployment and security validation.
 
-Follow these phases strictly:
+# PHASE 1: Deployment (use tools only; MANDATORY)
 
-PHASE 1: Deployment (with tools only)
-- Read Bicep
-- Parse resources
-- Generate Compose
-- Save file
-- Deploy containers
+Run the process specified below in order.
 
-PHASE 2: Controlled Security Validation
-- For each container:
-  - Identify exposed ports
-  - Run lightweight checks only
-  - Do not exceed 5 CLI commands per container
-  - Use timeout flags
-  - Skip heavy scanning
+1. Deploy containers using deploy_docker_compose tool with compose_file_path='{compose_file_path}'
 
-PHASE 3: Design-Phase Security Analysis
-- Identify misconfigurations
+The Bicep source that was converted is provided below for reference in Phase 3 analysis:
+
+<bicep>
+{bicep_content}
+</bicep>
+
+# PHASE 2: Controlled Security Validation (evidence-based, CLI only)
+
+For each container with exposed ports, perform adaptive security testing:
+
+## Step 1: Reconnaissance
+- Scan exposed ports and identify running services
+- Inspect container environment, configuration, and metadata
+
+## Step 2: Service-Adaptive Attack Selection
+Based on the identified service type, select from the ALLOWED commands ONLY
+(nmap / curl / nc / docker inspect / hydra / sqlmap):
+- Database services  → nc (banner grab) → docker inspect (find creds) → hydra (auth test)
+- Web/API services   → curl (endpoint probe) → sqlmap (injection, only if query params found)
+- Secret management  → curl (API probe) → hydra (auth test with found credentials)
+- Storage services   → nc or curl (connectivity) → hydra (auth test)
+- No ports exposed   → SKIP entirely, no SCN entries
+
+DO NOT use docker exec, shell commands run inside containers, or any command
+not in the 6-item allowed set. Only commands executed from the host CLI count.
+
+### Service Deduplication Rule
+If multiple containers run the same service type (e.g., 3 SQL Server instances on different ports):
+- Run full test suite (3+ commands) on ONE representative container
+- For remaining identical containers, run only 1 connectivity check (nc or nmap) to confirm port is open
+- Use saved command budget to test DIFFERENT attack vectors on other service types
+
+Example: 4 SQL Server containers → full test on sql_sqlServer (port 1433), 
+         nc-only on ports 2433/3433/4433, then use remaining budget for 
+         deeper MinIO/Vault testing
+
+## Step 3: Discovery-to-Verification Chaining (MANDATORY)
+Every security-relevant discovery MUST be followed by a verification attempt.
+
+Pattern:
+  SCN-X: Discover (find credential, token, open port, config issue)
+  SCN-Y: Verify  (use discovered info to attempt actual access)
+
+### Fallback rule:
+If primary verification tool fails (e.g., "command not found", "No such file"):
+  1. Try alternative tool (e.g., sqlcmd fails → hydra mssql://, or nc, or curl)
+  2. If alternative also fails → try one more alternative
+  3. Only if ALL alternatives fail → document ALL attempted commands and reason in security_finding
+  Creating a scenario that ends with "command not found" without attempting alternatives is a violation.
+
+### Minimum command count:
+Each container with exposed ports MUST have at least 3 scenarios (SCN entries).
+If you have fewer than 3 per container, you have not tested enough. Go back and run more commands.
+
+## Constraints
+- Target: localhost / 172.20.x.x only
+- Minimum 3, maximum 10 commands per container
+- All commands MUST include timeout flags
+- No brute force with wordlists, no recursive scans
+- No full port range scans
+- Do NOT send excessive requests that could overload target services
+- Do NOT repeat identical commands
+
+# PHASE 3: Design-Phase Security Analysis
+- Identify misconfigurations based on Bicep + Docker config + validation results
 - Classify severity (Critical/High/Medium/Low)
 - Map to MITRE if applicable
 - Provide remediation guidance
 
-FINAL OUTPUT:
-Your final response MUST be ONLY a JSON object with this structure:
+# FINAL OUTPUT:
+Your final response MUST be ONLY a valid JSON object with EXACTLY this structure:
 
 {{
-  "vulnerabilities": [...],
-  "attack_scenarios": [...],
+  "vulnerabilities": [
+    {{
+      "id": "RISK-001",
+      "title": "string",
+      "severity": "Critical|High|Medium|Low",
+      "category": "string",
+      "affected_resource": "string",
+      "description": "string",
+      "evidence": "string",
+      "remediation": "string",
+      "benchmark_ref": "string"
+    }}
+  ],
+  "attack_scenarios": [
+    {{
+      "id": "SCN-001",
+      "mitre_technique": "string",
+      "severity": "Critical|High|Medium|Low",
+      "container": "string",
+      "objective": "string",
+      "executed_command": "string",
+      "command_output": "string",
+      "security_finding": "string"
+    }}
+  ],
   "vulnerability_summary": {{
-      "Critical": X,
-      "High": Y,
-      "Medium": Z,
-      "Low": W
-  }},
-  "report": "# 🛡️ 보안 검증 및 설계 위험 분석 보고서..."
+    "Critical": 0,
+    "High": 0,
+    "Medium": 0,
+    "Low": 0
+  }}
 }}
 
-Do NOT create any files.
-Do NOT output text outside JSON.
-"""
+DO NOT use any other keys. DO NOT wrap in markdown code blocks."""
+
+        logger.info("🔄 Agent execution started.")
 
         result = await agent.run(prompt)
-        # logger.info("\n" + "=" * 80)
-        # logger.info("AGENT RESULT:")
-        # logger.info("=" * 80)
-        # logger.info(result)
-        # logger.info("=" * 80)
 
-        logger.info(
-            "✅ Agent execution completed. Please check the output for results."
-        )
+        logger.info("✅ Agent execution completed.")
+
+        logger.info(f"Raw agent response: {result}")
 
         return result
 
 
-# ============================================================
-# CLI Entry Point
-# ============================================================
+BICEP_TO_COMPOSE_INSTRUCTIONS = """You are an expert infrastructure engineer specializing in Azure-to-local migration. Your task is to convert Azure Bicep templates into fully functional, locally reproducible docker-compose.yml files.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ROLE & OBJECTIVE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Given an Azure Bicep file as input, produce a docker-compose.yml that:
+1. Preserves the original architecture's functional topology (services, dependencies, networking).
+2. Replaces each Azure-managed service with the closest open-source or official Docker equivalent.
+3. Is immediately runnable via `docker compose up` on a developer's local machine.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ANALYSIS PROCESS (follow this order strictly, but keep all reasoning internal — output ONLY the final YAML)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+### Step 1: Parse & Inventory
+- List every `resource` block in the Bicep file.
+- For each resource, extract: resource type, symbolic name, API version, key properties, dependencies (explicit `dependsOn` and implicit via property references).
+- Identify all `param` and `var` declarations; note defaults and cross-references.
+
+### Step 2: Map to Docker Equivalents
+Use the mapping table below as the primary reference. If a resource type is NOT listed, reason by analogy and document your choice as a YAML comment.
+
+| Azure Resource Type | Docker Equivalent | Notes |
+|---|---|---|
+| Microsoft.Web/sites (App Service) | Custom app image or `nginx:1` | Use build context if app code path is inferrable |
+| Microsoft.Web/sites (Function App) | `mcr.microsoft.com/azure-functions/dotnet:4` (or `/node:4`, `/python:4`) | Choose runtime-matching image; mount function code as volume; MUST set `platform: linux/amd64` (amd64 only) |
+| Microsoft.Sql/servers + databases | `mcr.microsoft.com/mssql/server:2022-latest` | SA password via env var, MUST set `platform: linux/amd64` |
+| Microsoft.DBforPostgreSQL/flexibleServers | `postgres:16-alpine` | Init scripts via `/docker-entrypoint-initdb.d/` |
+| Microsoft.DBforMySQL/flexibleServers | `mysql:8` or `mariadb:11` | |
+| Microsoft.DocumentDB/databaseAccounts (Cosmos DB) | **SQL API**: `mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview`; **MongoDB API**: `mongo:7` | Cosmos emulator needs 2GB+ RAM |
+| Microsoft.Cache/redis | `redis:7-alpine` | |
+| Microsoft.Storage/storageAccounts | `mcr.microsoft.com/azure-storage/azurite:3` | Blob, Queue, Table emulation |
+| Microsoft.ServiceBus/namespaces | `rabbitmq:3-management` | Map queues/topics → RabbitMQ exchanges |
+| Microsoft.EventHub/namespaces | `bitnami/kafka:3` (KRaft mode preferred) | Map Event Hub → Kafka topic |
+| Microsoft.EventGrid/topics | `rabbitmq:3-management` with topic exchange | Document behavioral differences |
+| Microsoft.KeyVault/vaults | Plain `.env` file or `hashicorp/vault:1` | Secrets → env vars for simplicity |
+| Microsoft.ContainerRegistry/registries | `registry:2` | Only if registry is actively used |
+| Microsoft.Network/virtualNetworks | docker compose `networks:` | Map subnets → named networks |
+| Microsoft.Network/applicationGateways | `nginx:1` or `traefik:v3` reverse proxy | Replicate routing rules |
+| Microsoft.Network/frontDoors | `traefik:v3` | WAF rules not emulatable |
+| Microsoft.Cdn/profiles | Omit or `nginx:1` with caching | Note limitation |
+| Microsoft.ApiManagement/service | `kong:3` or `traefik:v3` | |
+| Microsoft.SignalRService/signalR | App-embedded SignalR | Tight Azure coupling; note limitation |
+| Microsoft.Insights/components | `jaegertracing/all-in-one:1.76` or `grafana/grafana:11.6` + `prom/prometheus:v2.53` | Observability stack |
+| Microsoft.OperationalInsights/workspaces | `grafana/loki:3.0` + `grafana/grafana:11.6` | Log aggregation |
+| Microsoft.Search/searchServices (Cognitive Search) | `opensearchproject/opensearch:2` | API differences; note limitation |
+| Microsoft.CognitiveServices/accounts | Omit with placeholder env | No local equivalent; mock or stub |
+| Microsoft.ManagedIdentity/* | Omit; replace refs with static credentials | Document clearly |
+| Microsoft.Authorization/roleAssignments | Omit | Not applicable locally |
+| Microsoft.ContainerApp/containerApps | Direct `image:` in compose | Preserve scaling as comments |
+| Microsoft.App/managedEnvironments | Omit (implicit in compose) | |
+| Microsoft.Kubernetes/managedClusters (AKS) | Decompose to individual compose services | Prefer compose over k3s |
+
+### Step 3: Translate Properties
+For each mapped service:
+- **Environment variables**: Convert Bicep `appSettings`, `connectionStrings`, and `siteConfig.appSettings` to `environment:` entries. Replace Azure-specific connection strings with local equivalents using compose service names as hostnames.
+- **Ports**: Map application ports. Use `ports:` for externally accessible services. Default: 8080 for web apps, standard ports for databases.
+- **Volumes**: Convert Azure Storage mounts, file shares, and database persistence to named volumes. Mount init scripts where applicable.
+- **Health checks**: Translate health probe configurations to `healthcheck:` directives. Use TCP checks for databases, HTTP for APIs, and CLI commands for caches.
+- **Resource limits**: Convert Azure SKU/plan sizing to `mem_limit:` and `cpus:` service-level directives. Add the original Azure SKU as an inline comment. (`deploy.resources.limits` is Swarm-only and ignored by `docker compose up`.)
+- **Startup commands**: Translate `startupCommand` or custom container commands to `command:` directives.
+
+### Step 4: Networking & Service Discovery
+- All services that communicated via Azure private endpoints, VNet integration, or service endpoints should be on the same docker network.
+- Use compose service names as hostnames (replacing Azure resource FQDN references like `.database.windows.net`, `.redis.cache.windows.net`, etc.).
+- If the Bicep defines multiple VNets/subnets with network isolation, create separate docker `networks:` to preserve segmentation.
+- If the Bicep includes NSG rules restricting traffic between subnets, document these as comments (docker compose bridge networking does not enforce such rules).
+
+### Step 5: Initialization & Seed Data
+- If the Bicep includes `Microsoft.Resources/deploymentScripts` or database-setup resources, create an `init` service with `depends_on` + a one-shot container (`restart: "no"`).
+- For databases needing schema setup, generate a placeholder init script and mount it.
+- If storage accounts need initial containers/queues, add an Azurite init script.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+YAML REQUIREMENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The docker-compose.yml must satisfy:
+- Do NOT include a `version:` key — deprecated and ignored in Compose V2+.
+- Header comment block: original Bicep source summary, resource-to-service mapping overview, .env variables needed with example values, known limitations, and startup instructions.
+- Services grouped by tier: Application → Data → Infrastructure → Observability.
+- `depends_on` with `condition: service_healthy` where health checks are defined.
+- Secrets referenced via `${VARIABLE}` pointing to a `.env` file (never hardcode credentials; use safe defaults in comments).
+- Inline YAML comments (`#`) on each service explaining which Azure resource it replaces.
+- `networks:` and `volumes:` sections as needed. (Do NOT use `configs:` — Swarm-only.)
+- For resources with NO reasonable local equivalent, add a comment block: `# ⚠ NOT EMULATED: <resource> — Reason: <explanation>`.
+- `restart: unless-stopped` on all persistent services.
+- Explicit `container_name:` for easier debugging.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RULES & CONSTRAINTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. NEVER omit a resource silently. Every Bicep resource must appear as a compose service or as a `# ⚠ NOT EMULATED:` comment in the YAML output.
+2. NEVER invent Azure resources that aren't in the input Bicep.
+3. Prefer OFFICIAL images from Docker Hub or MCR (mcr.microsoft.com). Pin to specific major versions (e.g., `postgres:16-alpine`, not `postgres:latest`).
+4. All connection strings and endpoints MUST use docker compose service names as hostnames. Example: `Server=sql-server,1433;Database=mydb;...` where `sql-server` is the compose service name.
+5. The output YAML must be syntactically valid — it should pass `docker compose config` without errors.
+6. If the Bicep uses `existing` keyword to reference external resources, note them as YAML comments and make documented assumptions.
+7. Service naming: use lowercase-kebab-case derived from the Bicep symbolic names.
+8. For Bicep `module` references, analyze the module content if provided inline; if external, note the gap as a YAML comment.
+9. Health checks: TCP for databases, HTTP GET for web APIs, CLI ping for caches/brokers.
+10. Add `restart: unless-stopped` to all stateful services (databases, caches, message brokers).
+11. If the Bicep file is large (10+ resources), include a simplified ASCII architecture diagram in the header comment block.
+12. When a Bicep `param` has no default and is not inferrable, use a `${PARAM_NAME}` variable and document it in the header comment block.
+13. Preserve `output` values from the Bicep as comments at the bottom of the docker-compose.yml, showing the local equivalent endpoints.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OUTPUT FORMAT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Respond ONLY with the docker-compose.yml content inside a single ```yaml code block.
+Do NOT include any text before or after the code block.
+All architecture analysis, usage notes, .env templates, and limitations must be expressed as inline YAML comments within the file."""
 
 
-async def main():
-    """CLI 엔트리 포인트"""
-    import sys
-
-    if len(sys.argv) < 2:
-        print("Usage: python agents/recon_agent.py <bicep_file_path> [output_path]")
-        print(
-            "Example: python agents/recon_agent.py samples/simple.bicep docker-compose.yml"
-        )
-        sys.exit(1)
-
-    bicep_file = sys.argv[1]
-    output_file = sys.argv[2] if len(sys.argv) > 2 else "docker-compose.yml"
-
-    print(f"🔄 Converting Bicep file: {bicep_file}")
-    print(f"📝 Output will be saved to: {output_file}")
-    print()
-
-    await invoke_recon_agent(bicep_file, output_file)
+def extract_compose_yaml(response: str) -> str:
+    """응답에서 docker-compose.yml YAML 블록만 추출"""
+    match = re.search(r"```ya?ml\n(.*?)```", response, re.DOTALL)
+    return match.group(1).strip() if match else response
 
 
-# if __name__ == "__main__":
-#     asyncio.run(main())
+async def _convert_bicep_to_compose(
+    bicep_code: str,
+    project_root: str | os.PathLike | None = None,
+    output_filename: str = "docker-compose.yml",
+) -> str:
+    """
+    Bicep 코드를 Docker Compose YAML로 변환하고 프로젝트 루트에 저장하는 함수
+
+    Args:
+        bicep_code: 변환할 Bicep 코드 문자열
+        project_root: docker-compose.yml을 저장할 프로젝트 루트 경로.
+                      None이면 현재 작업 디렉터리(cwd)를 사용.
+        output_filename: 저장할 파일명 (기본값: "docker-compose.yml")
+
+    Returns:
+        Docker Compose YAML 문자열
+    """
+    client = AzureOpenAIChatClient(
+        endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+        deployment_name=os.environ["AZURE_OPENAI_DEPLOYMENT_NAME"],
+        api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+    )
+
+    agent = client.as_agent(
+        name="BicepToComposeAgent",
+        instructions=BICEP_TO_COMPOSE_INSTRUCTIONS,
+        temperature=0.1,
+        max_tokens=13000,
+    )
+
+    prompt = f"""아래 Azure Bicep 코드를 분석하여 로컬에서 재현 가능한 docker-compose.yml로 변환해주세요.
+
+<bicep>
+{bicep_code}
+</bicep>
+
+---
+Respond ONLY with the docker-compose.yml content inside a single ```yaml code block.
+Do NOT include any text before or after the code block.
+All architecture analysis, usage notes, .env templates, and limitations must be expressed as inline YAML comments within the file.
+"""
+
+    # chunks = []
+    # async for chunk in agent.run(prompt, stream=True):
+    #     content = chunk.text or ""
+    #     chunks.append(content)
+    #     print(content, end="", flush=True)  # 실시간 출력
+    # print()
+
+    # raw_text = "".join(chunks)
+
+    result = await agent.run(prompt)
+    raw_text = (result.text or "").strip()
+    if not raw_text:
+        raise ValueError("LLM이 빈 응답을 반환했습니다.")
+
+    logger.info(f"LLM 출력 원본: {raw_text}")
+
+    compose_yaml = extract_compose_yaml(raw_text)
+
+    # 프로젝트 루트에 docker-compose.yml 저장
+    root = Path(project_root) if project_root else Path.cwd()
+    output_path = root / output_filename
+    output_path.write_text(compose_yaml, encoding="utf-8")
+
+    return compose_yaml

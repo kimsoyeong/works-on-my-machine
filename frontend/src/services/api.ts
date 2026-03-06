@@ -10,11 +10,6 @@ export const api = axios.create({
   },
 });
 
-export const healthCheck = async (): Promise<{ status: string }> => {
-  const { data } = await api.get('/health');
-  return data;
-};
-
 export const analyzeFile = async (
   file: File,
   skipPolicy: boolean = false

@@ -1,18 +1,16 @@
 """
-Recon Agent Wrapper: Recon Agent의 stdout에서 JSON을 추출하여 API response로 반환
+Recon Agent Wrapper: Recon Agent의 JSON 응답을 AnalysisResult로 변환하여 API response로 반환
 """
 
+import re
 import json
 import logging
-import re
 import tempfile
 from pathlib import Path
-from typing import Literal
 
 from agents.models import AnalysisResult, VulnerabilityItem, AttackScenario
-from agents.recon_agent import invoke_recon_agent
+from agents.recon_agent import run_recon_agent
 
-# 로깅 설정
 logger = logging.getLogger(__name__)
 
 
@@ -50,10 +48,6 @@ def parse_json_to_analysis_result(json_data: dict, bicep_code: str) -> AnalysisR
 
     attack_scenarios = []
     for a in json_data.get("attack_scenarios", []):
-        # prerequisites가 리스트인 경우 문자열로 변환
-        prerequisites = a.get("prerequisites", "None")
-        if isinstance(prerequisites, list):
-            prerequisites = "; ".join(prerequisites)
 
         attack_scenarios.append(
             AttackScenario(
@@ -69,80 +63,22 @@ def parse_json_to_analysis_result(json_data: dict, bicep_code: str) -> AnalysisR
         )
 
     # Architecture summary 생성
+    vulnerability_summary = json_data.get(
+        "vulnerability_summary", {"Critical": 0, "High": 0, "Medium": 0, "Low": 0}
+    )
     architecture_summary = {
         "bicep_resources": len(bicep_code.split("resource ")),
         "total_vulnerabilities": len(vulnerabilities),
         "total_attack_scenarios": len(attack_scenarios),
-        "data_source": "JSON (parsed from agent stdout)",
+        "vulnerability_summary": vulnerability_summary,
+        "data_source": "JSON (parsed from agent response)",
     }
-
-    # Agent가 생성한 report 사용
-    report = json_data.get("report", "")
 
     return AnalysisResult(
         architecture_summary=architecture_summary,
         vulnerabilities=vulnerabilities,
         attack_scenarios=attack_scenarios,
-        report=report,
         raw_results=json_data,
-    )
-
-
-def parse_markdown_report(md_file: Path, bicep_code: str) -> AnalysisResult:
-    """
-    Markdown 리포트 파싱 (Fallback)
-
-    Args:
-        md_file: Markdown 파일 경로
-        bicep_code: 원본 Bicep 코드
-
-    Returns:
-        AnalysisResult: API 호환 형식
-    """
-    if not md_file.exists():
-        logger.warning(f"⚠️ Markdown file not found: {md_file}")
-        return AnalysisResult(
-            architecture_summary={"error": "No report generated"},
-            vulnerabilities=[],
-            attack_scenarios=[],
-            report="# No Report Generated\n\nAgent did not produce any output.",
-            raw_results={},
-        )
-
-    report = md_file.read_text()
-
-    # 간단한 파싱: 취약점 개수 추출
-    vuln_count = len(
-        re.findall(r"##\s+취약점|##\s+Vulnerability", report, re.IGNORECASE)
-    )
-
-    # 더미 취약점 생성 (Markdown에서 파싱)
-    vulnerabilities = []
-    for i in range(min(vuln_count, 5)):  # 최대 5개
-        vulnerabilities.append(
-            VulnerabilityItem(
-                id=f"VULN-{i+1:03d}",
-                severity="Medium",
-                category="Configuration",
-                affected_resource="Unknown",
-                title=f"Issue {i+1} (from Markdown)",
-                description="Parsed from Markdown report",
-                evidence="See detailed report",
-                remediation="Review Markdown for details",
-                benchmark_ref="N/A",
-            )
-        )
-
-    return AnalysisResult(
-        architecture_summary={
-            "bicep_resources": len(bicep_code.split("resource ")),
-            "total_vulnerabilities": len(vulnerabilities),
-            "data_source": "Markdown fallback",
-        },
-        vulnerabilities=vulnerabilities,
-        attack_scenarios=[],
-        report=report,
-        raw_results={"markdown": report[:500]},
     )
 
 
@@ -151,9 +87,9 @@ def parse_markdown_report(md_file: Path, bicep_code: str) -> AnalysisResult:
 # ============================================================
 
 
-async def analyze_bicep(bicep_code: str) -> AnalysisResult:
+async def invoke_recon_agent_wrapper(bicep_code: str) -> AnalysisResult:
     """
-    Bicep 코드를 분석하고 보안 취약점을 찾아 반환 (V2: Agent 응답을 JSON으로 파싱)
+    Bicep 코드를 분석하고 보안 취약점을 찾아 반환
 
     Args:
         bicep_code: Bicep 코드 문자열
@@ -161,12 +97,8 @@ async def analyze_bicep(bicep_code: str) -> AnalysisResult:
     Returns:
         AnalysisResult: 구조화된 분석 결과
     """
-    logger.info(f"🔄 Starting Recon Agent Wrapper")
+    logger.info("🔄 Starting Recon Agent Wrapper")
 
-    # Agent 선택 (zero-tools 모드는 with-tools로 처리)
-    convert_func = invoke_recon_agent
-
-    # 임시 디렉토리 생성
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir_path = Path(tmpdir)
 
@@ -182,8 +114,8 @@ async def analyze_bicep(bicep_code: str) -> AnalysisResult:
         agent_response = None
         agent_response_text = ""
         try:
-            logger.info(f"🤖 Running agent...")
-            agent_response = await convert_func(str(bicep_file), str(compose_file))
+            logger.info("🤖 Running agent...")
+            agent_response = await run_recon_agent(str(bicep_file), str(compose_file))
 
             # AgentResponse 객체를 문자열로 변환
             if hasattr(agent_response, "message"):
@@ -202,7 +134,6 @@ async def analyze_bicep(bicep_code: str) -> AnalysisResult:
                 architecture_summary={"error": str(e)},
                 vulnerabilities=[],
                 attack_scenarios=[],
-                report=f"## Analysis Failed\n\nError: {str(e)}",
                 raw_results={"error": str(e)},
             )
 
@@ -241,20 +172,22 @@ async def analyze_bicep(bicep_code: str) -> AnalysisResult:
 
         except (json.JSONDecodeError, AttributeError) as e:
             logger.warning(f"⚠️ JSON parsing failed: {e}")
-            logger.debug(f"Agent response preview: {agent_response_text[:500]}...")
+            logger.warning(f"Agent raw response: {agent_response_text}...")
 
-        # 5. Fallback: Markdown 파싱
-        logger.info("⚠️ Falling back to Markdown parsing...")
-        project_root = Path(__file__).parent.parent
-        md_file = project_root / "recon_security_report.md"
-        result = parse_markdown_report(md_file, bicep_code)
-
-        # Markdown 파일 정리
-        if md_file.exists():
-            md_file.unlink()
-            logger.info(f"🗑️ Cleaned up {md_file}")
-
-        return result
+        # 5. JSON 파싱 실패 시 빈 결과 반환
+        logger.error(
+            "❌ Could not extract JSON from agent response. Returning empty result."
+        )
+        return AnalysisResult(
+            architecture_summary={
+                "bicep_resources": len(bicep_code.split("resource ")),
+                "error": "JSON parsing failed",
+                "data_source": "fallback (empty)",
+            },
+            vulnerabilities=[],
+            attack_scenarios=[],
+            raw_results={"raw_response": agent_response_text[:1000]},
+        )
 
 
 # ============================================================
@@ -279,13 +212,9 @@ resource storage 'Microsoft.Storage/storageAccounts@2022-09-01' = {
 """
 
     print("🧪 Testing new_agent_wrapper V2...")
-    result = await analyze_bicep(bicep_code)
+    result = await invoke_recon_agent_wrapper(bicep_code)
 
     print(f"\n✅ Analysis complete!")
     print(f"   - Vulnerabilities: {len(result.vulnerabilities)}")
     print(f"   - Attack scenarios: {len(result.attack_scenarios)}")
     print(f"   - Data source: {result.architecture_summary.get('data_source')}")
-
-
-# if __name__ == "__main__":
-#     asyncio.run(test_wrapper())

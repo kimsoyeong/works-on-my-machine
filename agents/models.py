@@ -92,7 +92,6 @@ class AnalysisResult:
     architecture_summary: dict
     vulnerabilities: List[VulnerabilityItem]
     attack_scenarios: List[AttackScenario]
-    report: str
     raw_results: dict = field(default_factory=dict)
 
     @property
@@ -171,6 +170,7 @@ class BicepParser:
         "Microsoft.KeyVault/vaults": "keyvault",
         "Microsoft.Network/networkInterfaces": "nic",
         "Microsoft.Web/serverfarms": "appserviceplan",
+        "Microsoft.Network/privateEndpoints": "privateendpoint",
     }
 
     def __init__(self):
@@ -179,10 +179,16 @@ class BicepParser:
 
     def parse(self, bicep_code: str) -> Tuple[List[BicepResource], NetworkConfig]:
         """Bicep 코드 파싱"""
+
         logger.info("Bicep 코드 파싱 시작")
+
+        # 🔥 반드시 초기화 (누적 방지)
+        self.resources = []
+        self.network_config = NetworkConfig()
 
         # 리소스 추출
         matches = self.RESOURCE_PATTERN.finditer(bicep_code)
+
         for match in matches:
             resource_name = match.group(1)
             resource_type = match.group(2)
@@ -195,21 +201,82 @@ class BicepParser:
             properties = self._extract_properties(resource_body)
 
             resource = BicepResource(
-                name=resource_name, type=normalized_type, properties=properties
+                name=resource_name,
+                type=normalized_type,
+                properties=properties,
             )
+
             self.resources.append(resource)
 
+            # -----------------------------
             # 네트워크 설정 추출
+            # -----------------------------
+
             if normalized_type == "nsg":
                 self._extract_nsg_rules(resource_body)
+
             elif normalized_type == "vnet":
                 self._extract_subnets(resource_body)
+
             elif normalized_type == "publicip":
                 self.network_config.public_ips.append(resource_name)
 
+            elif normalized_type == "sql":
+                if "publicNetworkAccess" in properties:
+                    self.network_config.security_rules.append(
+                        {
+                            "type": "sql_public_access",
+                            "value": properties.get("publicNetworkAccess"),
+                        }
+                    )
+
+            elif normalized_type == "storage":
+                if "allowBlobPublicAccess" in properties:
+                    self.network_config.security_rules.append(
+                        {
+                            "type": "blob_public",
+                            "value": properties.get("allowBlobPublicAccess"),
+                        }
+                    )
+
+            elif normalized_type == "keyvault":
+                if "networkAcls" in resource_body:
+                    if "defaultAction: 'Allow'" in resource_body:
+                        self.network_config.security_rules.append(
+                            {
+                                "type": "kv_public_access",
+                                "value": "Allow",
+                            }
+                        )
+
+            elif normalized_type == "webapp":
+                if "publicNetworkAccess" in properties:
+                    self.network_config.security_rules.append(
+                        {
+                            "type": "webapp_public_access",
+                            "value": properties.get("publicNetworkAccess"),
+                        }
+                    )
+
+            # private endpoint 처리
+            elif normalized_type == "privateendpoint":
+                target_match = re.search(
+                    r"privateLinkServiceId:\s*([A-Za-z0-9_]+)\.id", resource_body
+                )
+
+                if target_match:
+                    target_resource = target_match.group(1)
+
+                    self.network_config.security_rules.append(
+                        {
+                            "type": "private_endpoint",
+                            "resource": target_resource,
+                        }
+                    )
+
         logger.info(
             f"파싱 완료: {len(self.resources)}개 리소스, "
-            f"{len(self.network_config.security_rules)}개 NSG 규칙"
+            f"{len(self.network_config.security_rules)}개 네트워크 규칙"
         )
 
         return self.resources, self.network_config
@@ -343,73 +410,252 @@ class ResourceMapper:
         self.network_config = network_config
         self.service_mapping: Dict[str, Dict] = {}
 
-    def map_to_docker(self) -> Dict[str, Dict]:
-        """리소스를 Docker 서비스로 매핑"""
-        logger.info("Azure 리소스를 Docker 서비스로 매핑 중")
+    def map_to_docker(self) -> dict:
+        """
+        Azure 네트워크 구조를 최대한 재현하는 Docker Compose 생성
+        """
 
-        # 포트 충돌 방지
+        services = {}
+        networks = {}
         used_host_ports = set()
 
+        # --------------------------------
+        # 1️⃣ Docker network 생성
+        # --------------------------------
+        private_endpoint_targets = {
+            r.get("resource")
+            for r in self.network_config.security_rules
+            if r.get("type") == "private_endpoint"
+        }
+
+        networks = {
+            "public_net": {"driver": "bridge"},
+            "private_net": {"driver": "bridge"},
+        }
+
+        # --------------------------------
+        # 2️⃣ 리소스 매핑
+        # --------------------------------
         for resource in self.resources:
-            if resource.type in self.RESOURCE_TO_DOCKER:
-                service_name = f"{resource.type}_{resource.name}"
-                docker_config = self.RESOURCE_TO_DOCKER[resource.type].copy()
 
-                # NSG 규칙을 포트 매핑으로 변환
-                ports = self._get_exposed_ports(resource.type)
+            resource_type = resource.type.lower()
 
-                service = {
-                    "image": docker_config.get("image"),
-                    "container_name": service_name,
-                    "networks": ["attack_network"],
-                    "restart": "unless-stopped",
-                }
+            if resource_type not in self.RESOURCE_TO_DOCKER:
+                continue
 
-                if "command" in docker_config:
-                    service["command"] = docker_config["command"]
+            docker_meta = self.RESOURCE_TO_DOCKER[resource_type]
+            service_name = resource.name.replace("-", "_")
 
-                if "environment" in docker_config:
-                    service["environment"] = docker_config["environment"]
+            service = {
+                "image": docker_meta["image"],
+                "container_name": service_name,
+                "restart": "unless-stopped",
+            }
 
-                # 포트 노출 - 충돌 방지
-                if ports:
-                    port_mappings = []
-                    for container_port in ports:
-                        host_port = container_port
-                        # 이미 사용 중인 포트면 다른 포트 찾기
-                        while host_port in used_host_ports:
-                            host_port += 1000  # 1000씩 증가 (1433 -> 2433)
-                        used_host_ports.add(host_port)
-                        port_mappings.append(f"{host_port}:{container_port}")
-                    service["ports"] = port_mappings
+            # 환경변수
+            if "environment" in docker_meta:
+                service["environment"] = docker_meta["environment"]
 
-                self.service_mapping[service_name] = service
+            # command
+            if "command" in docker_meta:
+                service["command"] = docker_meta["command"]
 
-        logger.info(f"매핑 완료: {len(self.service_mapping)}개 서비스")
-        return self.service_mapping
+            # --------------------------------
+            # 3️⃣ 네트워크(Subnet) 연결
+            # --------------------------------
+            # if self.network_config.subnets:
+            #     # 현재는 단순히 첫 subnet에 연결
+            #     service["networks"] = [self.network_config.subnets[0]["name"]]
+            # else:
+            #     service["networks"] = ["default_net"]
+            if resource.name in private_endpoint_targets:
+                service["networks"] = ["private_net"]
+            else:
+                service["networks"] = ["public_net"]
+
+            # --------------------------------
+            # 4️⃣ Public 노출 여부 확인
+            # --------------------------------
+            is_public = self._is_publicly_exposed(resource_type)
+
+            nsg_blocks = self._nsg_blocks_public_access(resource_type)
+
+            # --------------------------------
+            # 5️⃣ 포트 매핑
+            # --------------------------------
+            port_mappings = []
+
+            if is_public and not nsg_blocks:
+
+                exposed_ports = self._get_exposed_ports(resource_type)
+
+                for container_port in exposed_ports:
+
+                    host_port = container_port
+                    while host_port in used_host_ports:
+                        host_port += 1000
+
+                    used_host_ports.add(host_port)
+
+                    port_mappings.append(f"0.0.0.0:{host_port}:{container_port}")
+
+            if port_mappings:
+                service["ports"] = port_mappings
+
+            services[service_name] = service
+
+        return {
+            "version": "3.9",
+            "services": services,
+            "networks": networks,
+        }
+
+    def _nsg_blocks_public_access(self, resource_type: str):
+
+        default_ports = self.RESOURCE_TO_DOCKER.get(resource_type, {}).get("expose", [])
+
+        for rule in self.network_config.security_rules:
+
+            if (
+                rule.get("direction") == "Inbound"
+                and rule.get("access") == "Deny"
+                and rule.get("sourceAddressPrefix") in ["*", "0.0.0.0/0"]
+            ):
+
+                denied_port = rule.get("destinationPortRange")
+
+                # None 방어
+                if not denied_port:
+                    continue
+
+                # 모든 포트 차단: 외부 접근 불가
+                if denied_port == "*":
+                    return True
+
+                # 숫자 포트: 특정 포트 차단
+                if denied_port.isdigit():
+                    if int(denied_port) in default_ports:
+                        return True
+
+            return False
+
+    def _is_publicly_exposed(self, resource_type: str) -> bool:
+
+        sql_public = None
+        storage_public = None
+        kv_public = None
+        webapp_public = None
+
+        for rule in self.network_config.security_rules:
+
+            if rule.get("type") == "sql_public_access":
+                sql_public = rule.get("value")
+
+            if rule.get("type") == "blob_public":
+                storage_public = rule.get("value")
+
+            if rule.get("type") == "kv_public_access":
+                kv_public = rule.get("value")
+
+            if rule.get("type") == "webapp_public_access":
+                webapp_public = rule.get("value")
+
+        # SQL
+        if resource_type == "sql":
+            if sql_public is not None:
+                return sql_public == "Enabled"
+            return True
+
+        # Storage
+        if resource_type == "storage":
+            if storage_public is not None:
+                return str(storage_public).lower() == "true"
+            return False
+
+        # KeyVault
+        if resource_type == "keyvault":
+            if kv_public is not None:
+                return True
+            return False
+
+        # WebApp
+        if resource_type in ["webapp", "appservice"]:
+            if webapp_public is not None:
+                return webapp_public == "Enabled"
+            return True
+
+        return False
 
     def _get_exposed_ports(self, resource_type: str) -> List[int]:
-        """NSG 규칙에서 노출된 포트 추출"""
+        """
+        NSG Inbound Allow 규칙 기반 포트 계산
+        """
+
         exposed_ports = set()
 
         for rule in self.network_config.security_rules:
-            if (
-                rule.get("direction") == "Inbound"
-                and rule.get("access") == "Allow"
-                and rule.get("sourceAddressPrefix") == "*"
-            ):
 
-                port_range = rule.get("destinationPortRange", "")
-                if port_range and port_range != "*":
+            if rule.get("direction") != "Inbound":
+                continue
+
+            if rule.get("access") != "Allow":
+                continue
+
+            port_range = rule.get("destinationPortRange")
+            port_ranges = rule.get("destinationPortRanges")
+
+            # -----------------------------
+            # Case 1: destinationPortRange
+            # -----------------------------
+            if port_range:
+
+                if port_range == "*":
+                    default_ports = self.RESOURCE_TO_DOCKER.get(resource_type, {}).get(
+                        "expose", []
+                    )
+                    exposed_ports.update(default_ports)
+
+                elif port_range.isdigit():
+                    exposed_ports.add(int(port_range))
+
+                elif "-" in port_range:
                     try:
-                        port = int(port_range)
-                        exposed_ports.add(port)
-                    except ValueError:
+                        start, end = port_range.split("-")
+                        start = int(start)
+                        end = int(end)
+
+                        for p in range(start, end + 1):
+                            exposed_ports.add(p)
+
+                    except Exception:
                         pass
 
-        # 리소스 타입 기본 포트도 추가
-        if resource_type in self.RESOURCE_TO_DOCKER:
-            default_ports = self.RESOURCE_TO_DOCKER[resource_type].get("expose", [])
+                elif "," in port_range:
+                    parts = port_range.split(",")
+
+                    for p in parts:
+                        p = p.strip()
+                        if p.isdigit():
+                            exposed_ports.add(int(p))
+
+            # -----------------------------
+            # Case 2: destinationPortRanges
+            # -----------------------------
+            if port_ranges and isinstance(port_ranges, list):
+
+                for p in port_ranges:
+                    if isinstance(p, str) and p.isdigit():
+                        exposed_ports.add(int(p))
+
+        # -----------------------------
+        # NSG 규칙이 없으면 기본 포트
+        # -----------------------------
+        if not exposed_ports:
+
+            default_ports = self.RESOURCE_TO_DOCKER.get(resource_type, {}).get(
+                "expose", []
+            )
+
             exposed_ports.update(default_ports)
 
         return sorted(list(exposed_ports))
@@ -423,452 +669,20 @@ class ResourceMapper:
 class DockerComposer:
     """Docker Compose 파일 생성"""
 
-    def __init__(self, service_mapping: Dict[str, Dict]):
-        self.service_mapping = service_mapping
+    def __init__(self, compose_dict: Dict[str, Any]):
+        self.compose_dict = compose_dict
 
     def generate_compose_file(self) -> str:
-        """docker-compose.yml 생성"""
         logger.info("Docker Compose 파일 생성 중")
 
-        compose = {
-            "version": "3.8",
-            "services": self.service_mapping,
-            "networks": {
-                "attack_network": {
-                    "driver": "bridge",
-                    "ipam": {"config": [{"subnet": "172.20.0.0/16"}]},
-                }
-            },
-        }
-
-        yaml_content = yaml.dump(compose, default_flow_style=False, sort_keys=False)
-        logger.info("Docker Compose 파일 생성 완료")
-        return yaml_content
-
-
-# ============================================================
-# Phase 1: 로컬 배포자
-# ============================================================
-
-
-class LocalDeployer:
-    """Docker Compose 배포 및 관리"""
-
-    def __init__(self):
-        try:
-            self.docker_client = docker.from_env()
-            logger.info("Docker 연결 성공")
-        except Exception as e:
-            logger.error(f"Docker 연결 실패: {e}")
-            raise RuntimeError(
-                "Docker가 실행 중이지 않습니다. Docker를 시작한 후 다시 시도하세요."
-            )
-
-        self.compose_file_path: Optional[Path] = None
-        self.deployment_info: Optional[DeploymentInfo] = None
-        self.deployment_failed = False  # 배포 실패 플래그
-
-    def _validate_and_fix_compose_file(self, compose_path: Path) -> bool:
-        """
-        Docker Compose 파일 검증 및 자동 수정
-
-        Returns:
-            bool: 수정 여부
-        """
-        logger.info("🔍 Docker Compose 파일 검증 및 수정 중...")
-
-        try:
-            with open(compose_path, "r") as f:
-                compose_data = yaml.safe_load(f)
-
-            fixed = False
-
-            # 1. 포트 충돌 검증 및 수정
-            used_ports = set()
-            for service_name, service_config in compose_data.get(
-                "services", {}
-            ).items():
-                if "ports" in service_config:
-                    new_ports = []
-                    for port_mapping in service_config["ports"]:
-                        if isinstance(port_mapping, str) and ":" in port_mapping:
-                            host_port = int(port_mapping.split(":")[0])
-                            container_port = port_mapping.split(":")[1]
-
-                            original_host_port = host_port
-                            while host_port in used_ports:
-                                host_port += 1000
-                                fixed = True
-
-                            if original_host_port != host_port:
-                                logger.warning(
-                                    f"  ⚠️  포트 충돌 수정: {service_name} {original_host_port} → {host_port}"
-                                )
-
-                            used_ports.add(host_port)
-                            new_ports.append(f"{host_port}:{container_port}")
-                        else:
-                            new_ports.append(port_mapping)
-
-                    service_config["ports"] = new_ports
-
-            # 2. 이미지명 검증 및 수정
-            image_fixes = {
-                "vault:latest": "hashicorp/vault:latest",
-                "vault": "hashicorp/vault:latest",
-            }
-
-            for service_name, service_config in compose_data.get(
-                "services", {}
-            ).items():
-                if "image" in service_config:
-                    original_image = service_config["image"]
-                    if original_image in image_fixes:
-                        service_config["image"] = image_fixes[original_image]
-                        logger.warning(
-                            f"  ⚠️  이미지명 수정: {service_name} {original_image} → {service_config['image']}"
-                        )
-                        fixed = True
-
-            # 3. SQL Server 환경변수 검증 및 수정
-            for service_name, service_config in compose_data.get(
-                "services", {}
-            ).items():
-                if "mssql" in service_config.get("image", "").lower():
-                    env = service_config.get("environment", {})
-                    if isinstance(env, dict):
-                        # SA_PASSWORD를 MSSQL_SA_PASSWORD로 변경
-                        if "SA_PASSWORD" in env and "MSSQL_SA_PASSWORD" not in env:
-                            env["MSSQL_SA_PASSWORD"] = env.pop("SA_PASSWORD")
-                            logger.warning(
-                                f"  ⚠️  SQL Server 환경변수 수정: {service_name} SA_PASSWORD → MSSQL_SA_PASSWORD"
-                            )
-                            fixed = True
-
-                        # 비밀번호 강도 검증
-                        password = env.get("MSSQL_SA_PASSWORD", "")
-                        if (
-                            len(password) < 8
-                            or not any(c.isupper() for c in password)
-                            or not any(c.islower() for c in password)
-                            or not any(c.isdigit() for c in password)
-                        ):
-                            env["MSSQL_SA_PASSWORD"] = "YourStrong!Passw0rd"
-                            logger.warning(
-                                f"  ⚠️  SQL Server 비밀번호 강화: {service_name}"
-                            )
-                            fixed = True
-
-            # 수정 사항이 있으면 파일 다시 저장
-            if fixed:
-                with open(compose_path, "w") as f:
-                    yaml.dump(
-                        compose_data, f, default_flow_style=False, sort_keys=False
-                    )
-                logger.info(f"✅ Compose 파일 수정 완료: {compose_path}")
-                return True
-            else:
-                logger.info("✅ 검증 완료: 수정할 사항 없음")
-                return False
-
-        except Exception as e:
-            logger.error(f"❌ Compose 파일 검증 실패: {e}")
-            return False
-
-    def deploy(self, compose_yaml: str) -> DeploymentInfo:
-        """Docker Compose로 배포"""
-        logger.info("로컬 환경 배포 시작")
-
-        # 임시 파일에 compose 저장
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yml", delete=False) as f:
-            f.write(compose_yaml)
-            self.compose_file_path = Path(f.name)
-
-        logger.info(f"Compose 파일 경로: {self.compose_file_path}")
-
-        # 최대 2회 시도 (초기 시도 + 1회 재시도)
-        max_attempts = 2
-
-        for attempt in range(1, max_attempts + 1):
-            try:
-                # 2회차 시도 전에 파일 검증 및 수정
-                if attempt == 2:
-                    logger.warning(
-                        "⚠️  첫 배포 실패, Compose 파일 검증 후 재시도합니다..."
-                    )
-                    self._validate_and_fix_compose_file(self.compose_file_path)
-
-                # docker-compose up -d
-                logger.info(f"[시도 {attempt}/{max_attempts}] 컨테이너 시작 중...")
-                logger.info(
-                    "⏱️  이미지 다운로드 및 컨테이너 생성 중 (첫 실행 시 최대 10분 소요)"
-                )
-
-                result = subprocess.run(
-                    ["docker-compose", "-f", str(self.compose_file_path), "up", "-d"],
-                    capture_output=True,
-                    text=True,
-                    timeout=600,  # 10분 타임아웃 (이미지 다운로드 시간 포함)
-                )
-
-                if result.returncode != 0:
-                    logger.error(
-                        f"❌ 이미지 다운로드 및 컨테이너 생성 실패 (returncode={result.returncode})"
-                    )
-                    logger.error(f"Stderr: {result.stderr[:1000]}")
-
-                    # 마지막 시도였으면 실패 처리
-                    if attempt == max_attempts:
-                        logger.error("❌ 모든 배포 시도 실패. 시뮬레이션을 중단합니다.")
-                        self.deployment_failed = True
-                        return DeploymentInfo(
-                            compose_file=str(self.compose_file_path),
-                            containers=[],
-                            networks=[],
-                            volumes=[],
-                        )
-                    else:
-                        # docker-compose up 실패 시 yml 검증 후 재시도
-                        logger.warning("⚠️  Docker Compose 파일 검증 및 수정 중...")
-                        self._validate_and_fix_compose_file(self.compose_file_path)
-                        time.sleep(2)
-                        continue
-
-                # 배포 명령 성공!
-                logger.info("✅ 이미지 다운로드 및 컨테이너 생성 완료")
-
-                # 컨테이너 상태 반복 확인 (최대 10분)
-                logger.info("⏱️  컨테이너 상태 확인 중... (최대 10분 대기)")
-                max_wait_seconds = 600  # 10분
-                check_interval = 10  # 10초마다 체크
-                elapsed = 0
-                containers = []
-
-                while elapsed < max_wait_seconds:
-                    containers = self._get_running_containers()
-
-                    if containers:
-                        logger.info(
-                            f"✅ {len(containers)}개 컨테이너 감지됨 (대기 시간: {elapsed}초)"
-                        )
-                        break
-
-                    # 컨테이너 상태 로그
-                    if elapsed % 30 == 0:  # 30초마다 상태 출력
-                        ps_result = subprocess.run(
-                            [
-                                "docker-compose",
-                                "-f",
-                                str(self.compose_file_path),
-                                "ps",
-                                "-a",
-                            ],
-                            capture_output=True,
-                            text=True,
-                            timeout=10,
-                        )
-                        logger.info(
-                            f"컨테이너 초기화 중... ({elapsed}/{max_wait_seconds}초)"
-                        )
-                        if elapsed == 0:
-                            logger.debug(f"상태:\n{ps_result.stdout[:500]}")
-
-                    time.sleep(check_interval)
-                    elapsed += check_interval
-
-                # 10분 초과 시
-                if not containers:
-                    logger.warning(f"⚠️  10분 동안 컨테이너 시작 확인 안 됨")
-
-                    # 마지막 시도였으면 실패 처리
-                    if attempt == max_attempts:
-                        logger.error("❌ 컨테이너 시작 실패. 시뮬레이션을 중단합니다.")
-                        self.deployment_failed = True
-                        return DeploymentInfo(
-                            compose_file=str(self.compose_file_path),
-                            containers=[],
-                            networks=[],
-                            volumes=[],
-                        )
-                    else:
-                        # 10분 초과 시 컨테이너 정리부터 재시도
-                        logger.info(f"재시도 준비 중... ({attempt + 1}/{max_attempts})")
-                        time.sleep(2)
-                        continue
-
-                # 성공! 네트워크 정보 수집
-                networks = self._get_networks()
-
-                self.deployment_info = DeploymentInfo(
-                    compose_file=str(self.compose_file_path),
-                    containers=containers,
-                    networks=networks if networks else ["attack_network"],
-                    volumes=[],
-                )
-
-                logger.info(f"✅ 배포 완료: {len(containers)}개 컨테이너 실행 중")
-                return self.deployment_info
-
-            except subprocess.TimeoutExpired:
-                logger.error("❌ Docker Compose 배포 타임아웃 (10분 초과)")
-                if attempt == max_attempts:
-                    self.deployment_failed = True
-                    return DeploymentInfo(
-                        compose_file=str(self.compose_file_path),
-                        containers=[],
-                        networks=[],
-                        volumes=[],
-                    )
-                else:
-                    logger.info(f"타임아웃 후 재시도... ({attempt + 1}/{max_attempts})")
-                    time.sleep(2)
-                    continue
-
-            except Exception as e:
-                logger.error(f"배포 중 예외 발생: {e}", exc_info=True)
-                if attempt == max_attempts:
-                    self.deployment_failed = True
-                    return DeploymentInfo(
-                        compose_file=str(self.compose_file_path),
-                        containers=[],
-                        networks=[],
-                        volumes=[],
-                    )
-                else:
-                    logger.info(f"예외 후 재시도... ({attempt + 1}/{max_attempts})")
-                    time.sleep(2)
-                    continue
-
-        # 여기 도달하면 모든 시도 실패
-        logger.error("❌ 모든 배포 시도 실패")
-        self.deployment_failed = True
-        return DeploymentInfo(
-            compose_file=str(self.compose_file_path) if self.compose_file_path else "",
-            containers=[],
-            networks=[],
-            volumes=[],
+        yaml_content = yaml.dump(
+            self.compose_dict,
+            default_flow_style=False,
+            sort_keys=False,
         )
 
-    def _get_running_containers(self) -> List[Dict[str, str]]:
-        """실행 중인 컨테이너 정보 (subprocess 기반)"""
-        try:
-            # docker-compose ps -q로 컨테이너 ID 목록 가져오기
-            result = subprocess.run(
-                ["docker-compose", "-f", str(self.compose_file_path), "ps", "-q"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-
-            if result.returncode != 0:
-                logger.warning(f"docker-compose ps 실패: {result.stderr}")
-                return []
-
-            container_ids = result.stdout.strip().split("\n")
-            container_ids = [cid for cid in container_ids if cid]  # 빈 문자열 제거
-
-            if not container_ids:
-                return []
-
-            # 각 컨테이너의 상세 정보 가져오기
-            containers = []
-            for container_id in container_ids:
-                try:
-                    inspect_result = subprocess.run(
-                        ["docker", "inspect", container_id],
-                        capture_output=True,
-                        text=True,
-                        timeout=5,
-                    )
-
-                    if inspect_result.returncode != 0:
-                        continue
-
-                    import json
-
-                    container_data = json.loads(inspect_result.stdout)[0]
-
-                    # 상태가 running인지 확인
-                    state = container_data.get("State", {})
-                    if state.get("Status") != "running":
-                        continue
-
-                    # 네트워크 정보 찾기
-                    networks = container_data.get("NetworkSettings", {}).get(
-                        "Networks", {}
-                    )
-                    ip_address = "N/A"
-                    for network_name, network_info in networks.items():
-                        if "attack_network" in network_name:
-                            ip_address = network_info.get("IPAddress", "N/A")
-                            break
-
-                    # 이미지 이름
-                    image = container_data.get("Config", {}).get("Image", "unknown")
-
-                    containers.append(
-                        {
-                            "id": container_id[:12],
-                            "name": container_data.get("Name", "").lstrip("/"),
-                            "image": image,
-                            "ip": ip_address,
-                            "status": state.get("Status", "unknown"),
-                        }
-                    )
-
-                except Exception as e:
-                    logger.debug(f"컨테이너 {container_id} 정보 수집 실패: {e}")
-                    continue
-
-            return containers
-
-        except Exception as e:
-            logger.error(f"컨테이너 목록 조회 실패: {e}")
-            return []
-
-    def _get_networks(self) -> List[str]:
-        """네트워크 목록"""
-        networks = []
-        for network in self.docker_client.networks.list():
-            if "attack" in network.name:
-                networks.append(network.name)
-        return networks
-
-    def cleanup(self):
-        """배포 환경 정리 - 모든 컨테이너 제거"""
-        logger.info("🧹 모든 실행 중인 컨테이너 정리 중...")
-        try:
-            # 실행 중인 모든 컨테이너 중지
-            subprocess.run(
-                "docker stop $(docker ps -q) 2>/dev/null || true",
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-
-            # 모든 컨테이너 제거
-            subprocess.run(
-                "docker rm $(docker ps -aq) 2>/dev/null || true",
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-
-            # compose 파일 관련 리소스 정리
-            if self.compose_file_path and self.compose_file_path.exists():
-                subprocess.run(
-                    ["docker-compose", "-f", str(self.compose_file_path), "down", "-v"],
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
-                self.compose_file_path.unlink()
-
-            logger.info("✅ 정리 완료")
-        except Exception as e:
-            logger.warning(f"정리 중 오류: {e}")
+        logger.info("Docker Compose 파일 생성 완료")
+        return yaml_content
 
 
 # ============================================================

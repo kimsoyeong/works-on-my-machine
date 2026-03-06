@@ -30,14 +30,10 @@ frontend/
 │   ├── components/           # React 컴포넌트
 │   │   ├── ui/              # shadcn/ui 기본 컴포넌트
 │   │   │   ├── button.tsx
-│   │   │   ├── checkbox.tsx
-│   │   │   ├── dialog.tsx
-│   │   │   └── accordion.tsx
+│   │   │   └── checkbox.tsx
 │   │   ├── UploadCard.tsx    ✅ 파일 업로드 (드래그 앤 드롭)
 │   │   ├── PipelineBar.tsx   ✅ 파이프라인 진행 상태
 │   │   ├── ResultSummary.tsx ✅ 결과 요약 메트릭
-│   │   ├── ResultGrid.tsx    ✅ 결과 카드 Grid (2x2)
-│   │   ├── DetailModal.tsx   ✅ 상세 모달
 │   │   ├── ChatPanel.tsx     ✅ AI 챗봇 슬라이딩 패널
 │   │   └── MainContent.tsx   ✅ 메인 컨텐츠 오케스트레이터
 │   ├── services/            # API 호출
@@ -68,8 +64,6 @@ frontend/
 - ✅ 파일 업로드 컴포넌트 (드래그 앤 드롭)
 - ✅ 파이프라인 진행 바
 - ✅ 결과 요약 메트릭
-- ✅ 결과 Grid (2x2)
-- ✅ 상세 모달 (취약점, 공격, Policy, 보고서)
 - ✅ AI 챗봇 슬라이딩 패널
 - ✅ 애니메이션 (Framer Motion)
 - ⬜ 실제 분석 실행 (버튼 클릭 핸들러)
