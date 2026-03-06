@@ -7,17 +7,21 @@ interface AppState {
   analysisState: AnalysisState;
   uploadedFile: File | null;
   analysisResult: AnalyzeResponse | null;
+  previousResult: AnalyzeResponse | null;
   liveSteps: StepStatus[];
   error: string | null;
   analysisStartTime: number | null;
   elapsedSeconds: number | null;
+  reportSection: string;
 
   setAnalysisState: (state: AnalysisState) => void;
   setUploadedFile: (file: File | null) => void;
   setAnalysisResult: (result: AnalyzeResponse | null) => void;
+  setPreviousResult: (result: AnalyzeResponse | null) => void;
   addOrUpdateLiveStep: (step: StepStatus) => void;
   clearLiveSteps: () => void;
   setError: (error: string | null) => void;
+  setReportSection: (section: string) => void;
   reset: () => void;
 }
 
@@ -25,10 +29,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   analysisState: 'idle',
   uploadedFile: null,
   analysisResult: null,
+  previousResult: null,
   liveSteps: [],
   error: null,
   analysisStartTime: null,
   elapsedSeconds: null,
+  reportSection: 'policy',
 
   setAnalysisState: (state) => {
     if (state === 'analyzing') {
@@ -43,6 +49,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   setUploadedFile: (file) => set({ uploadedFile: file }),
   setAnalysisResult: (result) => set({ analysisResult: result }),
+  setPreviousResult: (result) => set({ previousResult: result }),
   addOrUpdateLiveStep: (step) =>
     set((state) => {
       const idx = state.liveSteps.findIndex((s) => s.step === step.step);
@@ -55,14 +62,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     }),
   clearLiveSteps: () => set({ liveSteps: [] }),
   setError: (error) => set({ error }),
+  setReportSection: (section) => set({ reportSection: section }),
   reset: () =>
     set({
       analysisState: 'idle',
       uploadedFile: null,
       analysisResult: null,
+      previousResult: null,
       liveSteps: [],
       error: null,
       analysisStartTime: null,
       elapsedSeconds: null,
+      reportSection: 'policy',
     }),
 }));

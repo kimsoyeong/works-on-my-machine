@@ -22,6 +22,30 @@ export interface AttackScenario {
   security_finding: string;
 }
 
+export interface PolicyViolation {
+  rule: string;
+  severity: string;
+  message: string;
+  recommendation: string;
+}
+
+export interface VulnerabilityItem {
+  id: string;
+  severity: string;
+  category: string;
+  affected_resource: string;
+  title: string;
+  description: string;
+  remediation: string;
+}
+
+export interface ResourceReproduction {
+  resource: string;
+  docker_image: string;
+  status: 'pass' | 'partial';
+  note: string;
+}
+
 export interface SecurityResult {
   final_report: string;
   improved_bicep_code: string;
@@ -30,11 +54,17 @@ export interface SecurityResult {
   verification_checklist: string[];
   attack_scenarios: AttackScenario[];
   reproduction_fidelity: number | null;
+  reproduction_details?: Record<string, string>;
+  resource_reproduction?: ResourceReproduction[];
+  vulnerabilities?: VulnerabilityItem[];
+  simulation_conclusion?: string;
 }
 
 export interface PolicySummary {
   violations: number;
   recommendations: number;
+  violation_details?: PolicyViolation[];
+  recommendation_details?: PolicyViolation[];
 }
 
 export interface AnalyzeResponse {

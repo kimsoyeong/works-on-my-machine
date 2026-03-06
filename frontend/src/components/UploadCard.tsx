@@ -52,206 +52,191 @@ export function UploadCard({ onStartAnalysis }: UploadCardProps) {
   }, []);
 
   const isAnalyzing = analysisState === 'analyzing';
+  const canStart = !!uploadedFile && !isAnalyzing;
 
   return (
     <div style={{ opacity: isAnalyzing ? 0.5 : 1, pointerEvents: isAnalyzing ? 'none' : 'auto', transition: 'opacity 0.3s' }}>
-      {/* Upload zone card */}
-      <div style={{
-        background: 'var(--pf-surface)',
-        border: '1px solid var(--pf-border)',
-        borderRadius: '20px',
-        padding: '24px',
-        backdropFilter: 'blur(20px)',
-      }}>
-        {/* Section label */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-          <div style={{
-            width: '6px', height: '6px', borderRadius: '50%',
-            background: 'var(--pf-accent)',
-            boxShadow: '0 0 8px var(--pf-accent-shadow)',
-          }} />
+      {/* Chat-input style card */}
+      <div
+        onDragEnter={handleDrag}
+        onDragLeave={handleDrag}
+        onDragOver={handleDrag}
+        onDrop={handleDrop}
+        style={{
+          borderRadius: '20px',
+          border: `1px solid ${isDragOver ? 'var(--pf-border-dashed-hover)' : 'rgba(0,0,0,0.08)'}`,
+          background: isDragOver ? 'var(--pf-accent-drag-bg)' : 'var(--pf-surface)',
+          backdropFilter: 'blur(20px)',
+          transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+          overflow: 'hidden',
+          boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
+        }}
+      >
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".png,.jpg,.jpeg"
+          onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
+          style={{ display: 'none' }}
+        />
+
+        {/* Section header */}
+        <div style={{ padding: '14px 18px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--pf-accent)' }} />
           <span style={{
-            fontSize: '12px', fontWeight: 600, color: 'var(--pf-text-3)',
-            fontFamily: "'DM Sans', sans-serif",
-            textTransform: 'uppercase', letterSpacing: '0.08em',
+            fontSize: '11px', fontWeight: 600, letterSpacing: '1.5px', textTransform: 'uppercase' as const,
+            color: 'var(--pf-text-3)', fontFamily: "'DM Sans', sans-serif",
           }}>
             Architecture Diagram
           </span>
         </div>
 
-        {/* Drop zone */}
-        <div
-          onDragEnter={handleDrag}
-          onDragLeave={handleDrag}
-          onDragOver={handleDrag}
-          onDrop={handleDrop}
-          onClick={() => !uploadedFile && inputRef.current?.click()}
-          style={{
-            position: 'relative',
-            border: `1.5px dashed ${isDragOver ? 'var(--pf-border-dashed-hover)' : uploadedFile ? 'rgba(34,197,94,0.45)' : 'var(--pf-border-dashed)'}`,
-            borderRadius: '16px',
-            padding: uploadedFile ? '0' : '48px 32px',
-            textAlign: 'center',
-            cursor: uploadedFile ? 'default' : 'pointer',
-            background: isDragOver
-              ? 'var(--pf-accent-drag-bg)'
-              : uploadedFile
-                ? 'rgba(34,197,94,0.08)'
-                : 'var(--pf-surface-inset)',
-            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-            overflow: 'hidden',
-          }}
-        >
-          <input
-            ref={inputRef}
-            type="file"
-            accept=".png,.jpg,.jpeg"
-            onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
-            style={{ display: 'none' }}
-          />
-
-          {!uploadedFile ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
-              <div style={{
-                width: '56px', height: '56px', borderRadius: '14px',
-                background: `linear-gradient(135deg, var(--pf-accent-gradient-from), var(--pf-accent-gradient-to))`,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '22px',
-              }}>
-                📐
-              </div>
-              <div>
-                <p style={{
-                  margin: 0, fontSize: '14px', fontWeight: 500, color: 'var(--pf-text-2)',
-                  fontFamily: "'DM Sans', sans-serif",
-                }}>
-                  아키텍처 다이어그램을 드래그하거나 클릭하여 업로드
-                </p>
-                <p style={{
-                  margin: '8px 0 0', fontSize: '12px', color: 'var(--pf-text-4)',
-                  fontFamily: "'DM Sans', sans-serif",
-                }}>
-                  PNG, JPG · 최대 20MB
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div>
-              {/* Preview */}
-              <div style={{ padding: '16px 16px 0', position: 'relative' }}>
-                <div style={{
-                  borderRadius: '10px', overflow: 'hidden',
-                  background: 'var(--pf-preview-bg)',
-                  border: '1px solid var(--pf-preview-border)',
-                  position: 'relative',
-                }}>
-                  {previewUrl && (
-                    <img
-                      src={previewUrl}
-                      alt="preview"
-                      style={{ width: '100%', display: 'block', maxHeight: '200px', objectFit: 'contain' }}
-                    />
-                  )}
-                  {/* Scanline overlay */}
-                  <div style={{
-                    position: 'absolute', inset: 0,
-                    background: `repeating-linear-gradient(0deg, transparent, transparent 2px, var(--pf-scanline) 2px, var(--pf-scanline) 4px)`,
-                    pointerEvents: 'none',
-                  }} />
-                </div>
-              </div>
-
-              {/* File info bar */}
-              <div style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '14px 20px',
-                borderTop: '1px solid var(--pf-border-muted)',
-                marginTop: '16px',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <div style={{
-                    width: '32px', height: '32px', borderRadius: '50%',
-                    background: '#22c55e',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}>
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                      <path d="M3.5 8.5L6.5 11.5L12.5 4.5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </div>
-                  <div>
-                    <p style={{
-                      margin: 0, fontSize: '13px', fontWeight: 500, color: 'var(--pf-text-2)',
-                      fontFamily: "'DM Mono', monospace", letterSpacing: '-0.01em',
-                      maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    }}>
-                      {uploadedFile.name}
-                    </p>
-                    <p style={{
-                      margin: '2px 0 0', fontSize: '11px', color: 'var(--pf-text-4)',
-                      fontFamily: "'DM Sans', sans-serif",
-                    }}>
-                      {(uploadedFile.size / (1024 * 1024)).toFixed(1)} MB
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setUploadedFile(null); }}
-                  className="pf-btn-change"
-                  style={{
-                    padding: '6px 14px', borderRadius: '8px',
-                    border: '1px solid var(--pf-btn-border)',
-                    background: 'var(--pf-btn-bg)',
-                    color: 'var(--pf-btn-text)', fontSize: '12px', cursor: 'pointer',
-                    fontFamily: "'DM Sans', sans-serif", transition: 'all 0.2s',
-                  }}
-                >
-                  변경
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* CTA */}
-      <div style={{ marginTop: '16px' }}>
-        <button
-          disabled={!uploadedFile || isAnalyzing}
-          onClick={onStartAnalysis}
-          onMouseEnter={() => setIsHovering(true)}
-          onMouseLeave={() => setIsHovering(false)}
-          style={{
-            width: '100%', marginTop: '12px',
-            padding: '16px 24px', borderRadius: '14px', border: 'none',
-            background: isHovering
-              ? `linear-gradient(135deg, var(--pf-accent), var(--pf-accent-hover))`
-              : `linear-gradient(135deg, var(--pf-accent-deep), var(--pf-accent))`,
-            color: '#fff', fontSize: '15px', fontWeight: 600,
-            fontFamily: "'DM Sans', sans-serif",
-            cursor: uploadedFile && !isAnalyzing ? 'pointer' : 'not-allowed',
-            opacity: uploadedFile && !isAnalyzing ? 1 : 0.5,
-            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
-            letterSpacing: '-0.01em',
-            boxShadow: isHovering && uploadedFile
-              ? 'var(--pf-cta-shadow-hover)'
-              : 'var(--pf-cta-shadow)',
-            transform: isHovering && uploadedFile ? 'translateY(-1px)' : 'translateY(0)',
-          }}
-        >
-          {isAnalyzing ? (
-            <>
-              <span className="pf-spinner" />
-              분석 중...
-            </>
-          ) : (
-            <>
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M8 14V2M3 7l5-5 5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        {/* Upper area — upload zone or preview */}
+        {!uploadedFile ? (
+          <div
+            onClick={() => inputRef.current?.click()}
+            style={{
+              margin: '12px 16px 0',
+              padding: '32px 24px',
+              textAlign: 'center',
+              cursor: 'pointer',
+              borderRadius: '14px',
+              border: `2px dashed ${isDragOver ? 'var(--pf-accent)' : 'rgba(0,0,0,0.1)'}`,
+              background: isDragOver ? 'rgba(108,58,237,0.03)' : 'rgba(0,0,0,0.015)',
+              transition: 'all 0.2s',
+            }}
+          >
+            {/* Upload icon */}
+            <div style={{
+              width: '48px', height: '48px', borderRadius: '12px',
+              background: 'rgba(0,0,0,0.04)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              margin: '0 auto 14px',
+            }}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+                <path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2M12 4v12M8 8l4-4 4 4" stroke="var(--pf-text-5)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
-              분석 시작
-            </>
+            </div>
+            <p style={{
+              margin: 0, fontSize: '14px', color: 'var(--pf-text-3)',
+              fontFamily: "'DM Sans', sans-serif", fontWeight: 500,
+            }}>
+              아키텍처 다이어그램을 드래그하거나 클릭하여 업로드
+            </p>
+            <p style={{
+              margin: '6px 0 0', fontSize: '12px', color: 'var(--pf-text-5)',
+              fontFamily: "'DM Sans', sans-serif",
+            }}>
+              PNG, JPG · 최대 20MB
+            </p>
+          </div>
+        ) : (
+          <div style={{ padding: '16px 16px 0' }}>
+            {/* Image preview */}
+            <div style={{
+              borderRadius: '12px', overflow: 'hidden',
+              background: 'var(--pf-preview-bg)',
+              border: '1px solid var(--pf-preview-border)',
+              position: 'relative',
+            }}>
+              {previewUrl && (
+                <img
+                  src={previewUrl}
+                  alt="preview"
+                  style={{ width: '100%', display: 'block', maxHeight: '200px', objectFit: 'contain' }}
+                />
+              )}
+              {/* Scanline overlay */}
+              <div style={{
+                position: 'absolute', inset: 0,
+                background: `repeating-linear-gradient(0deg, transparent, transparent 2px, var(--pf-scanline) 2px, var(--pf-scanline) 4px)`,
+                pointerEvents: 'none',
+              }} />
+            </div>
+
+            {/* File info */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: '10px',
+              padding: '12px 4px 0',
+            }}>
+              <div style={{
+                width: '24px', height: '24px', borderRadius: '50%',
+                background: '#22c55e',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                flexShrink: 0,
+              }}>
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                  <path d="M3.5 8.5L6.5 11.5L12.5 4.5" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </div>
+              <p style={{
+                margin: 0, fontSize: '13px', fontWeight: 500, color: 'var(--pf-text-3)',
+                fontFamily: "'DM Mono', monospace",
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                flex: 1,
+              }}>
+                {uploadedFile.name}
+              </p>
+              <button
+                onClick={(e) => { e.stopPropagation(); setUploadedFile(null); }}
+                className="pf-btn-change"
+                style={{
+                  padding: '4px 12px', borderRadius: '8px',
+                  border: '1px solid var(--pf-btn-border)',
+                  background: 'var(--pf-btn-bg)',
+                  color: 'var(--pf-btn-text)', fontSize: '11px', cursor: 'pointer',
+                  fontFamily: "'DM Sans', sans-serif", transition: 'all 0.2s',
+                  flexShrink: 0,
+                }}
+              >
+                변경
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Bottom bar — file info left, send button right */}
+        <div style={{
+          display: 'flex', justifyContent: uploadedFile ? 'space-between' : 'flex-end', alignItems: 'center',
+          padding: '12px 16px',
+        }}>
+          {uploadedFile && (
+            <span style={{
+              fontSize: '12px', color: 'var(--pf-text-5)',
+              fontFamily: "'DM Sans', sans-serif",
+            }}>
+              {`${(uploadedFile.size / (1024 * 1024)).toFixed(1)} MB`}
+            </span>
           )}
-        </button>
+
+          {/* Circular send button */}
+          <button
+            disabled={!canStart}
+            onClick={onStartAnalysis}
+            onMouseEnter={() => setIsHovering(true)}
+            onMouseLeave={() => setIsHovering(false)}
+            style={{
+              width: '36px', height: '36px', borderRadius: '10px',
+              border: 'none',
+              background: canStart
+                ? (isHovering ? '#8B5CF6' : '#6C3AED')
+                : 'var(--pf-border)',
+              cursor: canStart ? 'pointer' : 'default',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              transition: 'all 0.2s ease',
+              boxShadow: 'none',
+              flexShrink: 0,
+            }}
+          >
+            {isAnalyzing ? (
+              <span className="pf-spinner" />
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M8 13V3M4 7l4-4 4 4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            )}
+          </button>
+        </div>
       </div>
 
       <style>{`
