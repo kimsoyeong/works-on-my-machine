@@ -168,7 +168,14 @@ async def invoke_recon_agent_wrapper(bicep_code: str) -> AnalysisResult:
             logger.info(
                 f"   - Attack scenarios: {len(json_data.get('attack_scenarios', []))}"
             )
-            return parse_json_to_analysis_result(json_data, bicep_code)
+            result = parse_json_to_analysis_result(json_data, bicep_code)
+
+            # docker-compose.yml 내용을 AnalysisResult에 포함
+            if compose_file.exists():
+                result.docker_compose_txt = compose_file.read_text(encoding="utf-8")
+                logger.info(f"📄 Docker Compose content loaded ({len(result.docker_compose_txt)} chars)")
+
+            return result
 
         except (json.JSONDecodeError, AttributeError) as e:
             logger.warning(f"⚠️ JSON parsing failed: {e}")

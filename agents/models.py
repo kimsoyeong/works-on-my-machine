@@ -93,6 +93,7 @@ class AnalysisResult:
     vulnerabilities: List[VulnerabilityItem]
     attack_scenarios: List[AttackScenario]
     raw_results: dict = field(default_factory=dict)
+    docker_compose_txt: str = ""
 
     @property
     def vulnerability_count(self) -> dict:

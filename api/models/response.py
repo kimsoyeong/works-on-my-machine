@@ -24,15 +24,22 @@ class PolicyResult(BaseModel):
 
 class SecurityResult(BaseModel):
     final_report: str = ""  # 통합 해설 보고서 (Markdown)
+    improved_bicep_code: str = ""  # 보안 개선 반영 Bicep 코드
     vulnerability_summary: int = 0
     severity_counts: dict = {}  # {"Critical": X, "High": Y, "Medium": Z, "Low": W}
     verification_checklist: list[str] = []
     attack_scenarios: list[AttackScenario] = []
+    reproduction_fidelity: float | None = None  # Bicep → Docker 재현율 (0~100)
 
+
+class PolicySummary(BaseModel):
+    violations: int = 0
+    recommendations: int = 0
 
 class AnalyzeResponse(BaseModel):
     status: str  # success / error
     task_id: str = ""
     steps: list[StepStatus] = []
+    policy: PolicySummary | None = None
     security: SecurityResult | None = None
     error: str | None = None

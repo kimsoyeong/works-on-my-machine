@@ -3,6 +3,7 @@ import dataclasses
 import json
 import logging
 import os
+import re
 import uuid
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
@@ -14,6 +15,7 @@ from agents.reporting_agent import generate_report
 from api.models.response import (
     AnalyzeResponse,
     PolicyResult,
+    PolicySummary,
     SecurityResult,
     StepStatus,
 )
@@ -41,6 +43,37 @@ def _validate_file(filename: str, size: int) -> None:
         )
 
 
+def _extract_improved_bicep(report: str) -> str:
+    """final_report 마크다운에서 개선된 Bicep 코드 블록 추출"""
+    # ```bicep ... ``` 블록 중 가장 긴 것을 선택 (가장 완전한 코드일 가능성 높음)
+    blocks = re.findall(r"```bicep\s*\n(.*?)```", report, re.DOTALL)
+    if not blocks:
+        return ""
+    longest = max(blocks, key=len)
+    return longest.strip()
+
+
+def _extract_reproduction_fidelity(report: str) -> float | None:
+    """final_report 마크다운에서 Overall Reproduction Fidelity 퍼센트를 추출"""
+    # "XX %" 또는 "XX%" 패턴을 Reproduction Fidelity 근처에서 찾기
+    m = re.search(
+        r"(?:Reproduction Fidelity|재현율|재현 정확도)[^\d]{0,60}(\d{1,3}(?:\.\d+)?)\s*%",
+        report,
+        re.IGNORECASE,
+    )
+    if m:
+        val = float(m.group(1))
+        if 0 <= val <= 100:
+            return val
+    # 테이블 형태: "| Overall ... | XX% |" 등
+    m = re.search(r"Overall.*?(\d{1,3}(?:\.\d+)?)\s*%", report, re.IGNORECASE)
+    if m:
+        val = float(m.group(1))
+        if 0 <= val <= 100:
+            return val
+    return None
+
+
 def _norm(v: dict) -> dict:
     return {
         "rule": v.get("rule") or v.get("rule_id") or "-",
@@ -51,6 +84,7 @@ def _norm(v: dict) -> dict:
 
 
 async def _run_policy(bicep_code: str) -> tuple[PolicyResult | None, StepStatus]:
+    logger.info("🛡️ Policy 검증 시작...")
     raw = await review_bicep_only(bicep_code)
     api_status = (
         "passed"
@@ -68,11 +102,13 @@ async def _run_policy(bicep_code: str) -> tuple[PolicyResult | None, StepStatus]
         summary=raw.get("summary", ""),
     )
     if raw.get("status") == "error":
+        logger.error(f"❌ Policy 검증 실패: {raw.get('error', '검증 실패')}")
         step = StepStatus(
             step="Policy 검증", status="error", message=raw.get("error", "검증 실패")
         )
     else:
         msg = raw.get("result_message") or raw.get("summary", "")
+        logger.info(f"✅ Policy 검증 완료: {msg}")
         step = StepStatus(step="Policy 검증", status="completed", message=msg)
     return policy_result, step
 
@@ -175,6 +211,7 @@ async def analyze_architecture(
             policy_recommendations=policy_recommendations,
             recon_vulnerabilities=recon_vuln_dicts,
             recon_attack_scenarios=recon_attack_dicts,
+            docker_compose_txt=result.docker_compose_txt,
         )
         steps.append(
             StepStatus(
@@ -199,10 +236,12 @@ async def analyze_architecture(
 
         security = SecurityResult(
             final_report=preflight["final_report"],
+            improved_bicep_code=_extract_improved_bicep(preflight["final_report"]),
             vulnerability_summary=preflight["vulnerability_summary"],
             severity_counts=severity_counts,
             verification_checklist=preflight["verification_checklist"],
             attack_scenarios=result.attack_scenarios,
+            reproduction_fidelity=_extract_reproduction_fidelity(preflight["final_report"]),
         )
 
         # --- Step 6: 결과 종합 ---
@@ -220,6 +259,10 @@ async def analyze_architecture(
             status="success",
             task_id=task_id,
             steps=steps,
+            policy=PolicySummary(
+                violations=len(policy_violations),
+                recommendations=len(policy_recommendations),
+            ),
             security=security,
         )
 
@@ -311,6 +354,7 @@ async def _stream_generator(content: bytes, filename: str):
             policy_recommendations=policy_recommendations,
             recon_vulnerabilities=recon_vuln_dicts,
             recon_attack_scenarios=recon_attack_dicts,
+            docker_compose_txt=recon_result.docker_compose_txt if recon_result else "",
         )
 
         vuln_count = len(recon_vuln_dicts)
@@ -329,16 +373,22 @@ async def _stream_generator(content: bytes, filename: str):
 
         security = SecurityResult(
             final_report=preflight["final_report"],
+            improved_bicep_code=_extract_improved_bicep(preflight["final_report"]),
             vulnerability_summary=preflight["vulnerability_summary"],
             severity_counts=severity_counts,
             verification_checklist=preflight["verification_checklist"],
             attack_scenarios=recon_result.attack_scenarios if recon_result else [],
+            reproduction_fidelity=_extract_reproduction_fidelity(preflight["final_report"]),
         )
 
         final = AnalyzeResponse(
             status="success",
             task_id=task_id,
             steps=[],
+            policy=PolicySummary(
+                violations=len(policy_violations),
+                recommendations=len(policy_recommendations),
+            ),
             security=security,
         )
         yield sse("result", final.model_dump())

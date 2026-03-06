@@ -448,6 +448,24 @@ def deploy_docker_compose(
         )
         logger.info(f"🧹 [Tool] Cleanup completed: {cleanup.stdout.strip()}")
 
+        # compose 파일에서 container_name을 파싱하여 충돌하는 기존 컨테이너 강제 제거
+        try:
+            import yaml as _yaml
+
+            with open(compose_file, "r") as f:
+                compose_data = _yaml.safe_load(f)
+            for svc in (compose_data or {}).get("services", {}).values():
+                cname = svc.get("container_name")
+                if cname:
+                    subprocess.run(
+                        ["docker", "rm", "-f", cname],
+                        capture_output=True,
+                        text=True,
+                    )
+            logger.info("🧹 [Tool] Stale containers removed")
+        except Exception as e:
+            logger.warning(f"⚠️ [Tool] Container cleanup parse failed: {e}")
+
         logger.info(f"🚀 [Tool] Deploying Docker Compose from: {compose_file}")
 
         # docker-compose up -d 실행
@@ -948,16 +966,16 @@ Use the mapping table below as the primary reference. If a resource type is NOT 
 |---|---|---|
 | Microsoft.Web/sites (App Service) | Custom app image or `nginx:1` | Use build context if app code path is inferrable |
 | Microsoft.Web/sites (Function App) | `mcr.microsoft.com/azure-functions/dotnet:4` (or `/node:4`, `/python:4`) | Choose runtime-matching image; mount function code as volume; MUST set `platform: linux/amd64` (amd64 only) |
-| Microsoft.Sql/servers + databases | `mcr.microsoft.com/mssql/server:2022-latest` | MUST set `platform: linux/amd64`; env: `ACCEPT_EULA=Y`, `MSSQL_SA_PASSWORD=YourStrong!Passw0rd`, `MSSQL_PID=Developer` |
+| Microsoft.Sql/servers + databases | `mcr.microsoft.com/mssql/server:2022-latest` | MUST set `platform: linux/amd64` on BOTH the main service AND any init/sidecar containers that use this image; env: `ACCEPT_EULA=Y`, `MSSQL_SA_PASSWORD=YourStrong!Passw0rd`, `MSSQL_PID=Developer` |
 | Microsoft.DBforPostgreSQL/flexibleServers | `postgres:16-alpine` | Init scripts via `/docker-entrypoint-initdb.d/` |
 | Microsoft.DBforMySQL/flexibleServers | `mysql:8` or `mariadb:11` | |
 | Microsoft.DocumentDB/databaseAccounts (Cosmos DB) | **SQL API**: `mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview`; **MongoDB API**: `mongo:7` | Cosmos emulator needs 2GB+ RAM; env: `AZURE_COSMOS_EMULATOR_PARTITION_COUNT=1`, `AZURE_COSMOS_EMULATOR_IP_ADDRESS_OVERRIDE=127.0.0.1` (emulator key is auto-generated, do NOT set COSMOS_EMULATOR_KEY) |
 | Microsoft.Cache/redis | `redis:7-alpine` | |
-| Microsoft.Storage/storageAccounts | `mcr.microsoft.com/azure-storage/azurite:3` | Blob, Queue, Table emulation |
+| Microsoft.Storage/storageAccounts | `mcr.microsoft.com/azure-storage/azurite:latest` | Blob, Queue, Table emulation |
 | Microsoft.ServiceBus/namespaces | `rabbitmq:3-management` | Map queues/topics → RabbitMQ exchanges |
 | Microsoft.EventHub/namespaces | `bitnami/kafka:3` (KRaft mode preferred) | Map Event Hub → Kafka topic |
 | Microsoft.EventGrid/topics | `rabbitmq:3-management` with topic exchange | Document behavioral differences |
-| Microsoft.KeyVault/vaults | `hashicorp/vault:1` in dev mode | env: `VAULT_DEV_ROOT_TOKEN_ID=root`, `VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200`; do NOT reference external secret variables |
+| Microsoft.KeyVault/vaults | `hashicorp/vault:1.15` in dev mode | env: `VAULT_DEV_ROOT_TOKEN_ID=root`, `VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200`; do NOT reference external secret variables |
 | Microsoft.ContainerRegistry/registries | `registry:2` | Only if registry is actively used |
 | Microsoft.Network/virtualNetworks | docker compose `networks:` | Map subnets → named networks |
 | Microsoft.Network/applicationGateways | `nginx:1` or `traefik:v3` reverse proxy | Replicate routing rules |
@@ -994,6 +1012,7 @@ For each mapped service:
 - If the Bicep includes `Microsoft.Resources/deploymentScripts` or database-setup resources, create an `init` service with `depends_on` + a one-shot container (`restart: "no"`).
 - For databases needing schema setup, generate a placeholder init script and mount it.
 - If storage accounts need initial containers/queues, add an Azurite init script.
+- CRITICAL: If an init container uses an amd64-only image (e.g., `mcr.microsoft.com/mssql/server`, `mcr.microsoft.com/mssql-tools`), it MUST also have `platform: linux/amd64` set. This applies to ALL sidecar/init services derived from amd64-only base images.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 YAML REQUIREMENTS
@@ -1001,13 +1020,13 @@ YAML REQUIREMENTS
 
 The docker-compose.yml must satisfy:
 - Do NOT include a `version:` key — deprecated and ignored in Compose V2+.
-- Header comment block: original Bicep source summary, resource-to-service mapping overview, .env variables needed with example values, known limitations, and startup instructions.
+- Header comment: keep it SHORT (max 5 lines). Only list service names and their Azure resource mappings in a compact table. No ASCII art, no box-drawing characters, no verbose explanations.
 - Services grouped by tier: Application → Data → Infrastructure → Observability.
 - `depends_on` with `condition: service_healthy` where health checks are defined.
 - Secrets MUST use hardcoded safe default values directly in the YAML — NEVER use `${VARIABLE}` syntax.
   This is a local security simulation environment; all credentials must be directly embedded so `docker compose up` works without any .env file.
   Use these defaults: passwords → `YourStrong!Passw0rd`, tokens → `root`, generic secrets → `devSecretValue123`.
-- Inline YAML comments (`#`) on each service explaining which Azure resource it replaces.
+- One-line inline comment per service stating which Azure resource it replaces. No multi-line explanations.
 - `networks:` and `volumes:` sections as needed. (Do NOT use `configs:` — Swarm-only.)
 - For resources with NO reasonable local equivalent, add a comment block: `# ⚠ NOT EMULATED: <resource> — Reason: <explanation>`.
 - `restart: unless-stopped` on all persistent services.
@@ -1027,9 +1046,10 @@ RULES & CONSTRAINTS
 8. For Bicep `module` references, analyze the module content if provided inline; if external, note the gap as a YAML comment.
 9. Health checks: TCP for databases, HTTP GET for web APIs, CLI ping for caches/brokers.
 10. Add `restart: unless-stopped` to all stateful services (databases, caches, message brokers).
-11. If the Bicep file is large (10+ resources), include a simplified ASCII architecture diagram in the header comment block.
-12. When a Bicep `param` has no default and is not inferrable, use a `${PARAM_NAME}` variable and document it in the header comment block.
-13. Preserve `output` values from the Bicep as comments at the bottom of the docker-compose.yml, showing the local equivalent endpoints.
+11. Do NOT include ASCII art diagrams or box-drawing characters in comments. Keep all comments minimal.
+12. When a Bicep `param` has no default and is not inferrable, use a `${PARAM_NAME}` variable and add a single-line comment.
+13. Preserve `output` values from the Bicep as a compact comment block (one line per output) at the bottom.
+14. PLATFORM COMPATIBILITY: Any service using an image that only supports `linux/amd64` (e.g., `mcr.microsoft.com/mssql/server`, `mcr.microsoft.com/mssql-tools`, `mcr.microsoft.com/azure-functions/*`) MUST include `platform: linux/amd64` in its service definition. This includes init containers and sidecar services.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 OUTPUT FORMAT
@@ -1037,7 +1057,15 @@ OUTPUT FORMAT
 
 Respond ONLY with the docker-compose.yml content inside a single ```yaml code block.
 Do NOT include any text before or after the code block.
-All architecture analysis, usage notes, .env templates, and limitations must be expressed as inline YAML comments within the file."""
+
+COMMENT STYLE RULES (CRITICAL):
+- Keep ALL comments SHORT and MINIMAL. One line per comment max.
+- NO ASCII art, box-drawing (┌─┐└─┘│), or decorative borders.
+- NO verbose "KNOWN LIMITATIONS", "HOW TO RUN", or "CONNECTION STRINGS" blocks.
+- Header: max 5 lines — just resource-to-service mapping list.
+- Per-service: one comment line stating which Azure resource it replaces.
+- Footer outputs: one line per endpoint, no extra explanation.
+- Total comment lines should not exceed 20% of the file."""
 
 
 def extract_compose_yaml(response: str) -> str:
@@ -1084,7 +1112,9 @@ def fix_compose_yaml_syntax(compose_yaml: str) -> str:
     """LLM이 생성한 YAML에서 Docker Compose가 허용하지 않는 키를 수정"""
     # 'platforms' (복수형) → 'platform' (단수형)
     # Docker Compose는 서비스 레벨에서 'platform' (단수)만 허용
-    fixed = re.sub(r"^(\s*)platforms:", r"\1platform:", compose_yaml, flags=re.MULTILINE)
+    fixed = re.sub(
+        r"^(\s*)platforms:", r"\1platform:", compose_yaml, flags=re.MULTILINE
+    )
     if fixed != compose_yaml:
         logger.warning("⚠️ Fixed 'platforms' → 'platform' in generated compose YAML")
     return fixed
@@ -1129,7 +1159,7 @@ async def _convert_bicep_to_compose(
 ---
 Respond ONLY with the docker-compose.yml content inside a single ```yaml code block.
 Do NOT include any text before or after the code block.
-All architecture analysis, usage notes, .env templates, and limitations must be expressed as inline YAML comments within the file.
+Keep comments SHORT and MINIMAL — no ASCII art, no box-drawing, no verbose blocks. Max 1 line per comment.
 """
 
     # chunks = []
@@ -1146,7 +1176,7 @@ All architecture analysis, usage notes, .env templates, and limitations must be 
     if not raw_text:
         raise ValueError("LLM이 빈 응답을 반환했습니다.")
 
-    logger.info(f"LLM 출력 원본: {raw_text}")
+    logger.debug(f"LLM 출력 원본: {raw_text}")
 
     compose_yaml = extract_compose_yaml(raw_text)
     compose_yaml = resolve_unset_compose_variables(compose_yaml)
