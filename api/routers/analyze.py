@@ -44,13 +44,21 @@ def _validate_file(filename: str, size: int) -> None:
 
 
 def _extract_improved_bicep(report: str) -> str:
-    """final_report 마크다운에서 개선된 Bicep 코드 블록 추출"""
-    # ```bicep ... ``` 블록 중 가장 긴 것을 선택 (가장 완전한 코드일 가능성 높음)
+    """final_report 마크다운에서 개선된 Bicep 코드 블록 추출 (가장 긴 블록 = 전체 코드)"""
     blocks = re.findall(r"```bicep\s*\n(.*?)```", report, re.DOTALL)
     if not blocks:
         return ""
     longest = max(blocks, key=len)
     return longest.strip()
+
+
+def _strip_appendix(report: str) -> str:
+    """보고서에서 Appendix 섹션 및 END OF REPORT 제거"""
+    # Appendix 섹션 제거
+    report = re.sub(r"\n---\s*\n#\s*Appendix:.*", "", report, flags=re.DOTALL)
+    # END OF REPORT 제거
+    report = re.sub(r"\n*-{3,}\s*\n*END OF REPORT\s*", "", report)
+    return report.rstrip()
 
 
 def _extract_reproduction_fidelity(report: str) -> float | None:
@@ -234,14 +242,15 @@ async def analyze_architecture(
             sev = v.get("severity", "Medium")
             severity_counts[sev] = severity_counts.get(sev, 0) + 1
 
+        raw_report = preflight["final_report"]
         security = SecurityResult(
-            final_report=preflight["final_report"],
-            improved_bicep_code=_extract_improved_bicep(preflight["final_report"]),
+            final_report=_strip_appendix(raw_report),
+            improved_bicep_code=_extract_improved_bicep(raw_report),
             vulnerability_summary=preflight["vulnerability_summary"],
             severity_counts=severity_counts,
             verification_checklist=preflight["verification_checklist"],
             attack_scenarios=result.attack_scenarios,
-            reproduction_fidelity=_extract_reproduction_fidelity(preflight["final_report"]),
+            reproduction_fidelity=_extract_reproduction_fidelity(raw_report),
         )
 
         # --- Step 6: 결과 종합 ---
@@ -371,14 +380,15 @@ async def _stream_generator(content: bytes, filename: str):
             sev = v.get("severity", "Medium")
             severity_counts[sev] = severity_counts.get(sev, 0) + 1
 
+        raw_report = preflight["final_report"]
         security = SecurityResult(
-            final_report=preflight["final_report"],
-            improved_bicep_code=_extract_improved_bicep(preflight["final_report"]),
+            final_report=_strip_appendix(raw_report),
+            improved_bicep_code=_extract_improved_bicep(raw_report),
             vulnerability_summary=preflight["vulnerability_summary"],
             severity_counts=severity_counts,
             verification_checklist=preflight["verification_checklist"],
             attack_scenarios=recon_result.attack_scenarios if recon_result else [],
-            reproduction_fidelity=_extract_reproduction_fidelity(preflight["final_report"]),
+            reproduction_fidelity=_extract_reproduction_fidelity(raw_report),
         )
 
         final = AnalyzeResponse(
