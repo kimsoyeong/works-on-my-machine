@@ -358,8 +358,8 @@ if isinstance(prerequisites, list):
 ## [FIX] Security Report 렌더링 안 됨
 
 **증상**: 분석 결과 탭에서 보안 보고서가 표시되지 않음  
-**원인**: `ResultTabs.tsx`, `DetailModal.tsx`에서 `security?.report` 참조 유지  
-**해결**: 두 파일 모두 `security?.report` → `security?.final_report` 수정
+**원인**: `ResultTabs.tsx`에서 `security?.report` 참조 유지 (`DetailModal.tsx`는 이후 미사용으로 삭제됨)
+**해결**: `ResultTabs.tsx`에서 `security?.report` → `security?.final_report` 수정
 
 ---
 
