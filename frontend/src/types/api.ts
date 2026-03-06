@@ -24,16 +24,24 @@ export interface AttackScenario {
 
 export interface SecurityResult {
   final_report: string;
+  improved_bicep_code: string;
   vulnerability_summary: number;
   severity_counts: Record<string, number>;
   verification_checklist: string[];
   attack_scenarios: AttackScenario[];
+  reproduction_fidelity: number | null;
+}
+
+export interface PolicySummary {
+  violations: number;
+  recommendations: number;
 }
 
 export interface AnalyzeResponse {
   status: 'success' | 'error';
   task_id: string;
   steps: StepStatus[];
+  policy?: PolicySummary;
   security?: SecurityResult;
   error?: string;
 }

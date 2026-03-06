@@ -2,35 +2,18 @@ import { create } from 'zustand';
 import type { AnalyzeResponse, StepStatus } from '@/types/api';
 
 type AnalysisState = 'idle' | 'uploading' | 'analyzing' | 'completed' | 'error';
-type Theme = 'dark' | 'light';
-
-const getInitialTheme = (): Theme => {
-  if (typeof window !== 'undefined') {
-    return (localStorage.getItem('pf-theme') as Theme) || 'dark';
-  }
-  return 'dark';
-};
-
-const applyTheme = (theme: Theme) => {
-  document.documentElement.classList.remove('dark', 'light');
-  document.documentElement.classList.add(theme);
-  localStorage.setItem('pf-theme', theme);
-};
 
 interface AppState {
-  theme: Theme;
-  toggleTheme: () => void;
-
   analysisState: AnalysisState;
   uploadedFile: File | null;
-  skipPolicy: boolean;
   analysisResult: AnalyzeResponse | null;
   liveSteps: StepStatus[];
   error: string | null;
+  analysisStartTime: number | null;
+  elapsedSeconds: number | null;
 
   setAnalysisState: (state: AnalysisState) => void;
   setUploadedFile: (file: File | null) => void;
-  setSkipPolicy: (skip: boolean) => void;
   setAnalysisResult: (result: AnalyzeResponse | null) => void;
   addOrUpdateLiveStep: (step: StepStatus) => void;
   clearLiveSteps: () => void;
@@ -38,27 +21,27 @@ interface AppState {
   reset: () => void;
 }
 
-const initialTheme = getInitialTheme();
-applyTheme(initialTheme);
-
 export const useAppStore = create<AppState>((set, get) => ({
-  theme: initialTheme,
-  toggleTheme: () => {
-    const next = get().theme === 'dark' ? 'light' : 'dark';
-    applyTheme(next);
-    set({ theme: next });
-  },
-
   analysisState: 'idle',
   uploadedFile: null,
-  skipPolicy: false,
   analysisResult: null,
   liveSteps: [],
   error: null,
+  analysisStartTime: null,
+  elapsedSeconds: null,
 
-  setAnalysisState: (state) => set({ analysisState: state }),
+  setAnalysisState: (state) => {
+    if (state === 'analyzing') {
+      set({ analysisState: state, analysisStartTime: Date.now(), elapsedSeconds: null });
+    } else if (state === 'completed' || state === 'error') {
+      const start = get().analysisStartTime;
+      const elapsed = start ? Math.round((Date.now() - start) / 1000) : null;
+      set({ analysisState: state, elapsedSeconds: elapsed });
+    } else {
+      set({ analysisState: state });
+    }
+  },
   setUploadedFile: (file) => set({ uploadedFile: file }),
-  setSkipPolicy: (skip) => set({ skipPolicy: skip }),
   setAnalysisResult: (result) => set({ analysisResult: result }),
   addOrUpdateLiveStep: (step) =>
     set((state) => {
@@ -79,5 +62,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       analysisResult: null,
       liveSteps: [],
       error: null,
+      analysisStartTime: null,
+      elapsedSeconds: null,
     }),
 }));

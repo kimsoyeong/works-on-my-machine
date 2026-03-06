@@ -12,11 +12,9 @@ export const api = axios.create({
 
 export const analyzeFile = async (
   file: File,
-  skipPolicy: boolean = false
 ): Promise<AnalyzeResponse> => {
   const formData = new FormData();
   formData.append('file', file);
-  formData.append('skip_policy', String(skipPolicy));
 
   const { data } = await api.post<AnalyzeResponse>('/analyze', formData, {
     headers: {
@@ -29,14 +27,12 @@ export const analyzeFile = async (
 
 export const analyzeFileStream = async (
   file: File,
-  skipPolicy: boolean,
   onStep: (step: StepStatus) => void,
   onResult: (result: AnalyzeResponse) => void,
   onError: (message: string) => void,
 ): Promise<void> => {
   const formData = new FormData();
   formData.append('file', file);
-  formData.append('skip_policy', String(skipPolicy));
 
   const response = await fetch(`${API_BASE}/analyze/stream`, { method: 'POST', body: formData });
   if (!response.ok) throw new Error(`HTTP error: ${response.status}`);

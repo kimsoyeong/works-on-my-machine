@@ -2,7 +2,7 @@ import { MainContent } from './components/MainContent';
 import { useAppStore } from './store/app';
 
 function App() {
-  const { analysisState, theme, toggleTheme, reset } = useAppStore();
+  const { analysisState, reset } = useAppStore();
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--pf-bg)', position: 'relative', overflow: 'hidden' }}>
@@ -71,22 +71,6 @@ function App() {
                 ↩ New Analysis
               </button>
             )}
-            {/* Theme toggle */}
-            <button
-              onClick={toggleTheme}
-              style={{
-                width: '36px', height: '36px', borderRadius: '10px',
-                border: '1px solid var(--pf-toggle-btn-border)',
-                background: 'var(--pf-toggle-btn-bg)',
-                color: 'var(--pf-toggle-btn-text)',
-                fontSize: '16px', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                transition: 'all 0.2s',
-              }}
-              title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-            >
-              {theme === 'dark' ? '☀️' : '🌙'}
-            </button>
           </div>
         </div>
       </header>

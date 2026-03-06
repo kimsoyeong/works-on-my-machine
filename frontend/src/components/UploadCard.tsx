@@ -14,7 +14,7 @@ export function UploadCard({ onStartAnalysis }: UploadCardProps) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const { uploadedFile, skipPolicy, setUploadedFile, setSkipPolicy, analysisState } = useAppStore();
+  const { uploadedFile, setUploadedFile, analysisState } = useAppStore();
 
   useEffect(() => {
     if (uploadedFile && uploadedFile.type.startsWith('image/')) {
@@ -88,7 +88,7 @@ export function UploadCard({ onStartAnalysis }: UploadCardProps) {
           onClick={() => !uploadedFile && inputRef.current?.click()}
           style={{
             position: 'relative',
-            border: `1.5px dashed ${isDragOver ? 'var(--pf-border-dashed-hover)' : uploadedFile ? 'var(--pf-border-dashed-file)' : 'var(--pf-border-dashed)'}`,
+            border: `1.5px dashed ${isDragOver ? 'var(--pf-border-dashed-hover)' : uploadedFile ? 'rgba(34,197,94,0.45)' : 'var(--pf-border-dashed)'}`,
             borderRadius: '16px',
             padding: uploadedFile ? '0' : '48px 32px',
             textAlign: 'center',
@@ -96,7 +96,7 @@ export function UploadCard({ onStartAnalysis }: UploadCardProps) {
             background: isDragOver
               ? 'var(--pf-accent-drag-bg)'
               : uploadedFile
-                ? 'var(--pf-surface-subtle)'
+                ? 'rgba(34,197,94,0.08)'
                 : 'var(--pf-surface-inset)',
             transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
             overflow: 'hidden',
@@ -169,11 +169,13 @@ export function UploadCard({ onStartAnalysis }: UploadCardProps) {
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <div style={{
-                    width: '32px', height: '32px', borderRadius: '8px',
-                    background: `linear-gradient(135deg, var(--pf-file-icon-from), var(--pf-file-icon-to))`,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px',
+                    width: '32px', height: '32px', borderRadius: '50%',
+                    background: '#22c55e',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
                   }}>
-                    🖼
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                      <path d="M3.5 8.5L6.5 11.5L12.5 4.5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
                   </div>
                   <div>
                     <p style={{
@@ -210,54 +212,8 @@ export function UploadCard({ onStartAnalysis }: UploadCardProps) {
         </div>
       </div>
 
-      {/* Options & CTA */}
+      {/* CTA */}
       <div style={{ marginTop: '16px' }}>
-        {/* Skip Policy Toggle */}
-        <div
-          onClick={() => setSkipPolicy(!skipPolicy)}
-          style={{
-            display: 'flex', alignItems: 'center', gap: '12px',
-            padding: '14px 20px', borderRadius: '12px',
-            background: 'var(--pf-surface-subtle)',
-            border: '1px solid var(--pf-border-subtle)',
-            cursor: 'pointer', transition: 'all 0.2s',
-          }}
-        >
-          <div style={{
-            width: '36px', height: '20px', borderRadius: '10px',
-            background: skipPolicy
-              ? `linear-gradient(135deg, var(--pf-accent), var(--pf-accent-hover))`
-              : 'var(--pf-toggle-off)',
-            position: 'relative', transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-            flexShrink: 0,
-            boxShadow: skipPolicy ? '0 0 12px var(--pf-accent-shadow)' : 'none',
-          }}>
-            <div style={{
-              position: 'absolute', top: '2px',
-              left: skipPolicy ? '18px' : '2px',
-              width: '16px', height: '16px', borderRadius: '50%',
-              background: '#fff',
-              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-            }} />
-          </div>
-          <div>
-            <span style={{
-              fontSize: '13px', fontWeight: 500, color: 'var(--pf-text-2)',
-              fontFamily: "'DM Sans', sans-serif",
-            }}>
-              Skip Policy Validation
-            </span>
-            <p style={{
-              margin: '2px 0 0', fontSize: '11px', color: 'var(--pf-text-4)',
-              fontFamily: "'DM Sans', sans-serif",
-            }}>
-              정책 검증 단계를 건너뛰고 바로 취약점 분석을 수행합니다
-            </p>
-          </div>
-        </div>
-
-        {/* CTA Button */}
         <button
           disabled={!uploadedFile || isAnalyzing}
           onClick={onStartAnalysis}

@@ -1,9 +1,34 @@
 import { motion } from 'framer-motion';
-import { Download } from 'lucide-react';
+import { Download, FileCode } from 'lucide-react';
 import { useAppStore } from '@/store/app';
-import { Button } from './ui/button';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+
+const downloadBtnStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '8px',
+  padding: '10px 20px',
+  background: 'var(--pf-surface)',
+  border: '1px solid var(--pf-accent-faint-border)',
+  borderRadius: '12px',
+  color: 'var(--pf-accent-text)',
+  fontSize: '14px',
+  fontWeight: 500,
+  fontFamily: "'DM Sans', sans-serif",
+  cursor: 'pointer',
+  transition: 'all 0.2s ease',
+};
+
+function downloadBlob(content: string, filename: string, mime: string) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 export function ResultTabs() {
   const { analysisResult } = useAppStore();
@@ -13,33 +38,75 @@ export function ResultTabs() {
   }
 
   const report = analysisResult.security?.final_report || '';
+  const improvedBicep = analysisResult.security?.improved_bicep_code || '';
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="w-full max-w-4xl mx-auto"
+      style={{ width: '100%', maxWidth: '56rem', margin: '0 auto' }}
     >
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-2xl font-bold">Security Report</h2>
-        <Button
-          variant="gradient"
-          onClick={() => {
-            const blob = new Blob([report], { type: 'text/markdown' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'security_report.md';
-            a.click();
-          }}
-        >
-          <Download className="w-4 h-4 mr-2" />
-          Download Report
-        </Button>
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: '16px',
+      }}>
+        <h2 style={{
+          fontSize: '20px',
+          fontWeight: 700,
+          color: 'var(--pf-text-1)',
+          fontFamily: "'Outfit', sans-serif",
+          paddingLeft: '14px',
+          borderLeft: '3px solid var(--pf-accent)',
+          margin: 0,
+        }}>
+          Security Report
+        </h2>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button
+            onClick={() => downloadBlob(report, 'security_report.md', 'text/markdown')}
+            style={downloadBtnStyle}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = 'var(--pf-accent)';
+              e.currentTarget.style.background = 'var(--pf-accent-faint-bg)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = 'var(--pf-accent-faint-border)';
+              e.currentTarget.style.background = 'var(--pf-surface)';
+            }}
+          >
+            <Download style={{ width: 16, height: 16 }} />
+            Report
+          </button>
+          {improvedBicep && (
+            <button
+              onClick={() => downloadBlob(improvedBicep, 'improved.bicep', 'text/plain')}
+              style={downloadBtnStyle}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = 'var(--pf-accent)';
+                e.currentTarget.style.background = 'var(--pf-accent-faint-bg)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = 'var(--pf-accent-faint-border)';
+                e.currentTarget.style.background = 'var(--pf-surface)';
+              }}
+            >
+              <FileCode style={{ width: 16, height: 16 }} />
+              Improved Bicep
+            </button>
+          )}
+        </div>
       </div>
 
-      <div className="bg-white border-2 border-gray-200 rounded-2xl p-6 overflow-y-auto">
-        <div className="prose prose-sm prose-slate max-w-none prose-headings:font-bold prose-h1:text-2xl prose-h2:text-xl prose-h3:text-lg prose-p:text-gray-700 prose-strong:text-gray-900 prose-ul:list-disc prose-ol:list-decimal prose-table:border-collapse prose-th:border prose-th:border-gray-300 prose-th:bg-gray-100 prose-th:p-2 prose-td:border prose-td:border-gray-300 prose-td:p-2">
+      <div style={{
+        background: 'var(--pf-surface)',
+        border: '1px solid var(--pf-border)',
+        borderRadius: '16px',
+        padding: '28px',
+        overflowY: 'auto',
+      }}>
+        <div className="pf-report">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{report}</ReactMarkdown>
         </div>
       </div>

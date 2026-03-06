@@ -7,6 +7,145 @@ import { ResultSummary } from './ResultSummary';
 import { ResultTabs } from './ResultTabs';
 import { analyzeFileStream } from '@/services/api';
 
+const STEP_MESSAGES: Record<string, string> = {
+  '파일 업로드': '파일을 업로드하고 있습니다',
+  'BiCep 변환': 'BiCep 코드를 변환하고 있습니다',
+  'Policy 검증': '보안 정책을 검증하고 있습니다',
+  'Recon 분석': '보안 취약점을 분석하고 있습니다',
+  '결과 종합': '보고서를 생성하고 있습니다',
+  'PreFlight 통합 보고서': '보고서를 생성하고 있습니다',
+};
+
+const TOTAL_STEPS = 5;
+
+function AnalyzingProgress({ onCancel }: { onCancel: () => void }) {
+  const { liveSteps, uploadedFile } = useAppStore();
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (uploadedFile && uploadedFile.type.startsWith('image/')) {
+      const url = URL.createObjectURL(uploadedFile);
+      setPreviewUrl(url);
+      return () => URL.revokeObjectURL(url);
+    }
+  }, [uploadedFile]);
+
+  const completedCount = liveSteps.filter((s) => s.status === 'completed').length;
+  const inProgressStep = liveSteps.find((s) => s.status === 'in_progress');
+  const pct = Math.min(Math.round((completedCount / TOTAL_STEPS) * 100), 100);
+  const subtitle = inProgressStep
+    ? STEP_MESSAGES[inProgressStep.step] || inProgressStep.step
+    : '분석을 준비하고 있습니다';
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      style={{
+        maxWidth: '560px', margin: '0 auto', padding: '60px 24px 40px',
+        textAlign: 'center',
+      }}
+    >
+      {/* Uploaded image preview */}
+      {previewUrl && (
+        <div style={{
+          marginBottom: '28px',
+          borderRadius: '14px', overflow: 'hidden',
+          border: '1px solid var(--pf-border)',
+          background: 'var(--pf-surface)',
+          maxHeight: '220px',
+        }}>
+          <img
+            src={previewUrl}
+            alt="분석 중인 아키텍처"
+            style={{
+              width: '100%', display: 'block',
+              maxHeight: '220px', objectFit: 'contain',
+            }}
+          />
+        </div>
+      )}
+
+      <h2 style={{
+        margin: 0, fontSize: '32px', fontWeight: 700,
+        color: 'var(--pf-text-1)', fontFamily: "'Outfit', sans-serif",
+        letterSpacing: '-0.02em',
+      }}>
+        분석 중...
+      </h2>
+      <p style={{
+        margin: '10px 0 0', fontSize: '15px', color: 'var(--pf-text-4)',
+        fontFamily: "'DM Sans', sans-serif",
+      }}>
+        {subtitle}
+      </p>
+
+      {/* Progress bar */}
+      <div style={{ marginTop: '40px' }}>
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          marginBottom: '8px',
+        }}>
+          <span style={{
+            fontSize: '13px', color: 'var(--pf-text-4)',
+            fontFamily: "'DM Sans', sans-serif",
+          }}>
+            진행률
+          </span>
+          <span style={{
+            fontSize: '14px', fontWeight: 600, color: 'var(--pf-accent-text)',
+            fontFamily: "'DM Mono', monospace",
+          }}>
+            {pct}%
+          </span>
+        </div>
+        <div style={{
+          width: '100%', height: '10px', borderRadius: '99px',
+          background: 'var(--pf-border)',
+          overflow: 'hidden',
+        }}>
+          <motion.div
+            initial={{ width: 0 }}
+            animate={{ width: `${pct}%` }}
+            transition={{ duration: 0.5, ease: 'easeOut' }}
+            style={{
+              height: '100%', borderRadius: '99px',
+              background: 'linear-gradient(90deg, var(--pf-accent-deep), var(--pf-accent))',
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Cancel button */}
+      <button
+        onClick={onCancel}
+        style={{
+          marginTop: '32px', padding: '10px 32px',
+          borderRadius: '10px',
+          border: '1px solid var(--pf-border)',
+          background: 'var(--pf-surface)',
+          color: 'var(--pf-text-3)',
+          fontSize: '14px', fontWeight: 500,
+          fontFamily: "'DM Sans', sans-serif",
+          cursor: 'pointer',
+          transition: 'all 0.2s ease',
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.borderColor = 'var(--pf-accent)';
+          e.currentTarget.style.color = 'var(--pf-accent-text)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.borderColor = 'var(--pf-border)';
+          e.currentTarget.style.color = 'var(--pf-text-3)';
+        }}
+      >
+        취소
+      </button>
+    </motion.div>
+  );
+}
+
 const FeaturePill = ({ icon, text }: { icon: string; text: string }) => (
   <div style={{
     display: 'flex', alignItems: 'center', gap: '6px',
@@ -28,7 +167,6 @@ export function MainContent() {
   const {
     analysisState,
     uploadedFile,
-    skipPolicy,
     setAnalysisState,
     setAnalysisResult,
     setError,
@@ -45,7 +183,7 @@ export function MainContent() {
     setError(null);
     try {
       await analyzeFileStream(
-        uploadedFile, skipPolicy,
+        uploadedFile,
         (step) => addOrUpdateLiveStep(step),
         (result) => {
           if (result.status === 'success') {
@@ -105,8 +243,15 @@ export function MainContent() {
         )}
       </AnimatePresence>
 
-      {/* Upload / Hero */}
-      {!isCompleted && (
+      {/* Analyzing: Progress Section */}
+      <AnimatePresence>
+        {isAnalyzing && (
+          <AnalyzingProgress onCancel={() => { setAnalysisState('idle'); clearLiveSteps(); setError(null); }} />
+        )}
+      </AnimatePresence>
+
+      {/* Upload / Hero (idle or error only) */}
+      {!isCompleted && !isAnalyzing && (
         <div style={{ maxWidth: '680px', margin: '0 auto', padding: '0 24px' }}>
           {/* Hero */}
           <div style={{
