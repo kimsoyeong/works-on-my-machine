@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg"}
+ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".bicep"}
 MAX_FILE_SIZE = 20 * 1024 * 1024  # 20MB
 
 
@@ -80,6 +80,110 @@ def _extract_reproduction_fidelity(report: str) -> float | None:
         if 0 <= val <= 100:
             return val
     return None
+
+
+def _extract_reproduction_details(report: str) -> dict:
+    """리소스 재현, 보안 통제 재현, 네트워크 재현 세부 점수를 추출"""
+    details = {}
+    for label in ["리소스 재현", "보안 통제 재현", "네트워크 재현"]:
+        m = re.search(
+            rf"\|\s*{label}\s*\|\s*(.+?)\s*\|",
+            report,
+        )
+        if m:
+            details[label] = m.group(1).strip()
+    return details
+
+
+def _extract_resource_reproduction(report: str) -> list[dict]:
+    """보고서 4.1 섹션에서 리소스별 Docker 재현 테이블을 파싱"""
+    resources: list[dict] = []
+    # 4.1 섹션 찾기
+    section_match = re.search(
+        r"(?:4\.1|Docker 환경 재현 현황)(.*?)(?=\n##|\n---|\n#\s+\d|$)",
+        report,
+        re.DOTALL | re.IGNORECASE,
+    )
+    if not section_match:
+        return resources
+
+    section = section_match.group(1)
+
+    # 리소스 테이블 찾기 (첫 번째 테이블: 리소스 유형 | Bicep | Docker | 재현 상태)
+    table_match = re.search(
+        r"\|[^\n]*(?:리소스|Resource)[^\n]*\|.*?\n\|[\s\-:]+\|[\s\-:]+\|[\s\-:]+\|[\s\-:]+\|(.*?)(?=\n\n|\n\|[^\n]*(?:보안 통제|네트워크|항목)|\n##|\n---|$)",
+        section,
+        re.DOTALL | re.IGNORECASE,
+    )
+    if not table_match:
+        return resources
+
+    rows_text = table_match.group(1).strip()
+    for line in rows_text.split("\n"):
+        line = line.strip()
+        if not line.startswith("|") or "---" in line:
+            continue
+        cells = [c.strip() for c in line.split("|")[1:-1]]
+        if len(cells) >= 4:
+            resource = cells[0].strip()
+            docker_image = cells[2].strip()
+            note = cells[3].strip()
+            if resource and resource != "-" and "에이전트" not in resource:
+                # 상태 판단: 재현됨/완전 → pass, 나머지 → partial
+                status = "pass" if note in ("재현됨", "완전 재현", "✅") else "partial"
+                resources.append({
+                    "resource": resource,
+                    "docker_image": docker_image,
+                    "status": status,
+                    "note": note,
+                })
+    return resources
+
+
+def _extract_simulation_conclusion(report: str) -> str:
+    """보고서 섹션 4.3에서 시뮬레이션 결과 해석 텍스트 추출"""
+    m = re.search(
+        r"(?:4\.3|시뮬레이션 결과 해석)[^\n]*\n+([\s\S]*?)(?=\n---|\n#\s|\n##\s\d|$)",
+        report,
+        re.IGNORECASE,
+    )
+    if not m:
+        return ""
+    text = re.sub(r"^>\s*", "", m.group(1), flags=re.MULTILINE).replace("\n", " ").strip()
+    return text if len(text) >= 10 else ""
+
+
+def _build_security_result(
+    preflight: dict,
+    severity_counts: dict,
+    attack_scenarios: list,
+    vulnerabilities: list[dict],
+) -> SecurityResult:
+    """structured_data 우선, regex fallback으로 SecurityResult 생성"""
+    raw_report = preflight["final_report"]
+    sd = preflight.get("structured_data", {})
+
+    improved_bicep = sd.get("improved_bicep_code") or _extract_improved_bicep(raw_report)
+    repro_fidelity = sd.get("reproduction_fidelity")
+    if repro_fidelity is None:
+        repro_fidelity = _extract_reproduction_fidelity(raw_report)
+    repro_details = sd.get("reproduction_details") or _extract_reproduction_details(raw_report)
+    resource_repro = sd.get("resource_reproduction") or _extract_resource_reproduction(raw_report)
+    sim_conclusion = sd.get("simulation_conclusion") or _extract_simulation_conclusion(raw_report)
+
+    return SecurityResult(
+        final_report=_strip_appendix(raw_report),
+        improved_bicep_code=improved_bicep,
+        vulnerability_summary=preflight["vulnerability_summary"],
+        severity_counts=severity_counts,
+        verification_checklist=preflight["verification_checklist"],
+        attack_scenarios=attack_scenarios,
+        reproduction_fidelity=repro_fidelity,
+        reproduction_details=repro_details,
+        resource_reproduction=resource_repro,
+        vulnerabilities=vulnerabilities,
+        simulation_conclusion=sim_conclusion,
+    )
 
 
 def _norm(v: dict) -> dict:
@@ -242,15 +346,11 @@ async def analyze_architecture(
             sev = v.get("severity", "Medium")
             severity_counts[sev] = severity_counts.get(sev, 0) + 1
 
-        raw_report = preflight["final_report"]
-        security = SecurityResult(
-            final_report=_strip_appendix(raw_report),
-            improved_bicep_code=_extract_improved_bicep(raw_report),
-            vulnerability_summary=preflight["vulnerability_summary"],
+        security = _build_security_result(
+            preflight=preflight,
             severity_counts=severity_counts,
-            verification_checklist=preflight["verification_checklist"],
             attack_scenarios=result.attack_scenarios,
-            reproduction_fidelity=_extract_reproduction_fidelity(raw_report),
+            vulnerabilities=recon_vuln_dicts,
         )
 
         # --- Step 6: 결과 종합 ---
@@ -271,6 +371,8 @@ async def analyze_architecture(
             policy=PolicySummary(
                 violations=len(policy_violations),
                 recommendations=len(policy_recommendations),
+                violation_details=policy_violations,
+                recommendation_details=policy_recommendations,
             ),
             security=security,
         )
@@ -380,15 +482,11 @@ async def _stream_generator(content: bytes, filename: str):
             sev = v.get("severity", "Medium")
             severity_counts[sev] = severity_counts.get(sev, 0) + 1
 
-        raw_report = preflight["final_report"]
-        security = SecurityResult(
-            final_report=_strip_appendix(raw_report),
-            improved_bicep_code=_extract_improved_bicep(raw_report),
-            vulnerability_summary=preflight["vulnerability_summary"],
+        security = _build_security_result(
+            preflight=preflight,
             severity_counts=severity_counts,
-            verification_checklist=preflight["verification_checklist"],
             attack_scenarios=recon_result.attack_scenarios if recon_result else [],
-            reproduction_fidelity=_extract_reproduction_fidelity(raw_report),
+            vulnerabilities=recon_vuln_dicts,
         )
 
         final = AnalyzeResponse(
@@ -398,6 +496,8 @@ async def _stream_generator(content: bytes, filename: str):
             policy=PolicySummary(
                 violations=len(policy_violations),
                 recommendations=len(policy_recommendations),
+                violation_details=policy_violations,
+                recommendation_details=policy_recommendations,
             ),
             security=security,
         )
