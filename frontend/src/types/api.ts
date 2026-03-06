@@ -1,3 +1,9 @@
+// SSE Event Types
+export interface SSEStepEvent { type: 'step'; data: StepStatus; }
+export interface SSEResultEvent { type: 'result'; data: AnalyzeResponse; }
+export interface SSEErrorEvent { type: 'error'; data: { message: string }; }
+export type SSEEvent = SSEStepEvent | SSEResultEvent | SSEErrorEvent;
+
 // API Response Types
 export interface StepStatus {
   step: string;

@@ -1,10 +1,12 @@
 import asyncio
 import dataclasses
+import json
 import logging
 import os
 import uuid
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
 
 from agents.policy_agent import review_bicep_only
 from agents.recon_agent_wrapper import invoke_recon_agent_wrapper
@@ -232,3 +234,128 @@ async def analyze_architecture(
             steps=steps,
             error=str(e),
         )
+
+
+async def _stream_generator(content: bytes, filename: str):
+    def sse(type_: str, data: dict):
+        return f"data: {json.dumps({'type': type_, 'data': data}, ensure_ascii=False)}\n\n"
+
+    task_id = uuid.uuid4().hex[:12]
+
+    try:
+        # Step 1: 파일 업로드 완료
+        yield sse("step", StepStatus(
+            step="파일 업로드",
+            status="completed",
+            message=f"{filename} ({len(content)} bytes)",
+        ).model_dump())
+
+        # Step 2: BiCep 변환
+        yield sse("step", StepStatus(step="BiCep 변환", status="in_progress", message="변환 중...").model_dump())
+        bicep_code = await transform_image_to_bicep(content, filename)
+        yield sse("step", StepStatus(
+            step="BiCep 변환",
+            status="completed",
+            message=f"{len(bicep_code)} chars",
+        ).model_dump())
+
+        # Step 3+4: Policy 검증 & Recon 분석 병렬 실행
+        queue: asyncio.Queue = asyncio.Queue()
+
+        yield sse("step", StepStatus(step="Policy 검증", status="in_progress").model_dump())
+        yield sse("step", StepStatus(step="Recon 분석", status="in_progress").model_dump())
+
+        async def policy_task():
+            result, step = await _run_policy(bicep_code)
+            await queue.put(("policy", result, step))
+
+        async def recon_task():
+            result, step = await _run_recon(bicep_code)
+            await queue.put(("recon", result, step))
+
+        tasks = [asyncio.create_task(policy_task()), asyncio.create_task(recon_task())]
+
+        results = {}
+        for _ in range(2):
+            name, result, step = await queue.get()
+            results[name] = result
+            yield sse("step", step.model_dump())
+
+        await asyncio.gather(*tasks)
+
+        # Step 5: 결과 종합
+        yield sse("step", StepStatus(step="결과 종합", status="in_progress").model_dump())
+
+        policy_result = results.get("policy")
+        recon_result = results.get("recon")
+
+        policy_violations = policy_result.violations if policy_result else []
+        policy_recommendations = policy_result.recommendations if policy_result else []
+        recon_vuln_dicts = [
+            {
+                "id": v.id,
+                "severity": v.severity,
+                "category": v.category,
+                "affected_resource": v.affected_resource,
+                "title": v.title,
+                "description": v.description,
+                "remediation": v.remediation,
+            }
+            for v in recon_result.vulnerabilities
+        ] if recon_result else []
+        recon_attack_dicts = [dataclasses.asdict(s) for s in recon_result.attack_scenarios] if recon_result else []
+
+        preflight = await generate_report(
+            bicep_code=bicep_code,
+            policy_violations=policy_violations,
+            policy_recommendations=policy_recommendations,
+            recon_vulnerabilities=recon_vuln_dicts,
+            recon_attack_scenarios=recon_attack_dicts,
+        )
+
+        vuln_count = len(recon_vuln_dicts)
+        attack_count = len(recon_attack_dicts)
+
+        yield sse("step", StepStatus(
+            step="결과 종합",
+            status="completed",
+            message=f"취약점 {vuln_count}개 · 공격 {attack_count}개",
+        ).model_dump())
+
+        severity_counts: dict[str, int] = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0}
+        for v in recon_vuln_dicts:
+            sev = v.get("severity", "Medium")
+            severity_counts[sev] = severity_counts.get(sev, 0) + 1
+
+        security = SecurityResult(
+            final_report=preflight["final_report"],
+            vulnerability_summary=preflight["vulnerability_summary"],
+            severity_counts=severity_counts,
+            verification_checklist=preflight["verification_checklist"],
+            attack_scenarios=recon_result.attack_scenarios if recon_result else [],
+        )
+
+        final = AnalyzeResponse(
+            status="success",
+            task_id=task_id,
+            steps=[],
+            security=security,
+        )
+        yield sse("result", final.model_dump())
+
+    except HTTPException as e:
+        yield sse("error", {"message": e.detail})
+    except Exception as e:
+        logger.exception("스트리밍 분석 중 오류 발생")
+        yield sse("error", {"message": str(e)})
+
+
+@router.post("/analyze/stream")
+async def analyze_architecture_stream(file: UploadFile = File(...)):
+    content = await file.read()
+    _validate_file(file.filename, len(content))
+    return StreamingResponse(
+        _stream_generator(content, file.filename),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

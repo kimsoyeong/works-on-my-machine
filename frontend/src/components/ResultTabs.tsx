@@ -18,7 +18,7 @@ export function ResultTabs() {
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="w-full max-w-4xl"
+      className="w-full max-w-4xl mx-auto"
     >
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-2xl font-bold">Security Report</h2>

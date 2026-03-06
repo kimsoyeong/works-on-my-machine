@@ -2,51 +2,172 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
-    --radius: 1.5rem;
-  }
+/* ── PreFlight Theme Tokens ── */
+:root {
+  /* Page */
+  --pf-bg: #060a14;
+  --pf-surface: rgba(15, 23, 42, 0.5);
+  --pf-surface-subtle: rgba(15, 23, 42, 0.3);
+  --pf-surface-inset: rgba(15, 23, 42, 0.2);
 
-  .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 224.3 76.3% 48%;
-  }
+  /* Border */
+  --pf-border: rgba(30, 41, 59, 0.5);
+  --pf-border-subtle: rgba(30, 41, 59, 0.3);
+  --pf-border-muted: rgba(30, 41, 59, 0.4);
+  --pf-border-dashed: rgba(148, 163, 184, 0.15);
+  --pf-border-dashed-hover: #818cf8;
+  --pf-border-dashed-file: rgba(99, 102, 241, 0.2);
+
+  /* Text */
+  --pf-text-1: #f8fafc;
+  --pf-text-2: #e2e8f0;
+  --pf-text-3: #94a3b8;
+  --pf-text-4: #64748b;
+  --pf-text-5: #475569;
+
+  /* Accent */
+  --pf-accent: #6366f1;
+  --pf-accent-deep: #4f46e5;
+  --pf-accent-hover: #7c3aed;
+  --pf-accent-text: #818cf8;
+  --pf-accent-text-light: #a5b4fc;
+  --pf-accent-text-grad-end: #c084fc;
+  --pf-accent-shadow: rgba(99, 102, 241, 0.2);
+  --pf-accent-faint-bg: rgba(99, 102, 241, 0.06);
+  --pf-accent-faint-border: rgba(99, 102, 241, 0.12);
+  --pf-accent-drag-bg: rgba(99, 102, 241, 0.04);
+  --pf-accent-gradient-from: rgba(99, 102, 241, 0.12);
+  --pf-accent-gradient-to: rgba(139, 92, 246, 0.08);
+
+  /* Header */
+  --pf-header-bg: rgba(6, 10, 20, 0.8);
+  --pf-header-border: rgba(30, 41, 59, 0.4);
+
+  /* Preview area */
+  --pf-preview-bg: #0a0f1e;
+  --pf-preview-border: rgba(30, 41, 59, 0.6);
+  --pf-scanline: rgba(99, 102, 241, 0.015);
+
+  /* Ambient / decorative */
+  --pf-ambient-1: rgba(99, 102, 241, 0.06);
+  --pf-ambient-2: rgba(139, 92, 246, 0.04);
+  --pf-grid-dot: rgba(148, 163, 184, 0.03);
+
+  /* Toggle */
+  --pf-toggle-off: rgba(71, 85, 105, 0.4);
+
+  /* Badge */
+  --pf-badge-bg: rgba(251, 191, 36, 0.06);
+  --pf-badge-border: rgba(251, 191, 36, 0.12);
+  --pf-badge-text: #fbbf24;
+
+  /* CTA */
+  --pf-cta-shadow: 0 4px 16px rgba(99, 102, 241, 0.15), inset 0 1px 0 rgba(255,255,255,0.06);
+  --pf-cta-shadow-hover: 0 8px 32px rgba(99, 102, 241, 0.3), inset 0 1px 0 rgba(255,255,255,0.1);
+
+  /* Error */
+  --pf-error-bg: rgba(239, 68, 68, 0.06);
+  --pf-error-border: rgba(239, 68, 68, 0.2);
+  --pf-error-text: #f87171;
+
+  /* Pipeline bar */
+  --pf-pipeline-bg: rgba(10, 15, 30, 0.6);
+
+  /* Secondary button */
+  --pf-btn-bg: rgba(30, 41, 59, 0.4);
+  --pf-btn-border: rgba(148, 163, 184, 0.15);
+  --pf-btn-text: #94a3b8;
+
+  /* New Analysis button */
+  --pf-na-bg: rgba(99, 102, 241, 0.08);
+  --pf-na-border: rgba(99, 102, 241, 0.3);
+  --pf-na-text: #a5b4fc;
+
+  /* Theme toggle */
+  --pf-toggle-btn-bg: rgba(30, 41, 59, 0.5);
+  --pf-toggle-btn-border: rgba(51, 65, 85, 0.5);
+  --pf-toggle-btn-text: #94a3b8;
+
+  /* Icon gradient */
+  --pf-file-icon-from: #6366f1;
+  --pf-file-icon-to: #8b5cf6;
+  --pf-logo-shadow: 0 0 20px rgba(99,102,241,0.2);
+}
+
+/* ── Light Theme ── */
+:root.light {
+  --pf-bg: #f8fafc;
+  --pf-surface: rgba(255, 255, 255, 0.9);
+  --pf-surface-subtle: rgba(241, 245, 249, 0.7);
+  --pf-surface-inset: rgba(248, 250, 252, 0.9);
+
+  --pf-border: rgba(226, 232, 240, 0.9);
+  --pf-border-subtle: rgba(226, 232, 240, 0.6);
+  --pf-border-muted: rgba(226, 232, 240, 0.7);
+  --pf-border-dashed: rgba(203, 213, 225, 0.6);
+  --pf-border-dashed-hover: #6366f1;
+  --pf-border-dashed-file: rgba(99, 102, 241, 0.25);
+
+  --pf-text-1: #0f172a;
+  --pf-text-2: #1e293b;
+  --pf-text-3: #475569;
+  --pf-text-4: #64748b;
+  --pf-text-5: #94a3b8;
+
+  --pf-accent: #4f46e5;
+  --pf-accent-deep: #4338ca;
+  --pf-accent-hover: #6366f1;
+  --pf-accent-text: #4f46e5;
+  --pf-accent-text-light: #6366f1;
+  --pf-accent-text-grad-end: #7c3aed;
+  --pf-accent-shadow: rgba(99, 102, 241, 0.15);
+  --pf-accent-faint-bg: rgba(99, 102, 241, 0.04);
+  --pf-accent-faint-border: rgba(99, 102, 241, 0.1);
+  --pf-accent-drag-bg: rgba(99, 102, 241, 0.03);
+  --pf-accent-gradient-from: rgba(99, 102, 241, 0.08);
+  --pf-accent-gradient-to: rgba(139, 92, 246, 0.05);
+
+  --pf-header-bg: rgba(255, 255, 255, 0.88);
+  --pf-header-border: rgba(226, 232, 240, 0.7);
+
+  --pf-preview-bg: #f1f5f9;
+  --pf-preview-border: rgba(226, 232, 240, 0.9);
+  --pf-scanline: rgba(99, 102, 241, 0.006);
+
+  --pf-ambient-1: rgba(99, 102, 241, 0.03);
+  --pf-ambient-2: rgba(139, 92, 246, 0.02);
+  --pf-grid-dot: rgba(148, 163, 184, 0.06);
+
+  --pf-toggle-off: rgba(203, 213, 225, 0.6);
+
+  --pf-badge-bg: rgba(251, 191, 36, 0.06);
+  --pf-badge-border: rgba(251, 191, 36, 0.15);
+  --pf-badge-text: #b45309;
+
+  --pf-cta-shadow: 0 4px 16px rgba(79, 70, 229, 0.2), inset 0 1px 0 rgba(255,255,255,0.15);
+  --pf-cta-shadow-hover: 0 8px 32px rgba(79, 70, 229, 0.35), inset 0 1px 0 rgba(255,255,255,0.2);
+
+  --pf-error-bg: rgba(239, 68, 68, 0.04);
+  --pf-error-border: rgba(239, 68, 68, 0.15);
+  --pf-error-text: #dc2626;
+
+  --pf-pipeline-bg: rgba(255, 255, 255, 0.7);
+
+  --pf-btn-bg: rgba(241, 245, 249, 0.8);
+  --pf-btn-border: rgba(203, 213, 225, 0.5);
+  --pf-btn-text: #64748b;
+
+  --pf-na-bg: rgba(99, 102, 241, 0.06);
+  --pf-na-border: rgba(99, 102, 241, 0.2);
+  --pf-na-text: #4f46e5;
+
+  --pf-toggle-btn-bg: rgba(241, 245, 249, 0.8);
+  --pf-toggle-btn-border: rgba(203, 213, 225, 0.5);
+  --pf-toggle-btn-text: #64748b;
+
+  --pf-file-icon-from: #6366f1;
+  --pf-file-icon-to: #8b5cf6;
+  --pf-logo-shadow: 0 0 20px rgba(99,102,241,0.12);
 }
 
 @layer base {
@@ -54,41 +175,6 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
-    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
   }
-}
-
-/* Glassmorphism styles - White Tone */
-.glass-card {
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  box-shadow: 0 2px 16px 0 rgba(0, 0, 0, 0.04);
-  border-radius: 16px;
-  transition: all 0.3s ease;
-}
-
-.glass-card-strong {
-  background: rgba(255, 255, 255, 0.98);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  box-shadow: 0 4px 24px 0 rgba(0, 0, 0, 0.06);
-  border-radius: 16px;
-}
-
-.glass-header {
-  background: rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.03);
-}
-
-/* Clean White Background with subtle pattern */
-.gradient-bg {
-  background: #fafafa;
-  min-height: 100vh;
 }
