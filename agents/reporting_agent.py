@@ -181,6 +181,12 @@ Never fabricate infrastructure elements.
 
 The output must strictly follow the report structure
 defined in the prompt template.
+
+OUTPUT FORMAT
+
+You must return your response as a single valid JSON object
+with "final_report" and "structured_data" keys.
+Do not wrap the JSON in markdown code blocks.
 """
 # ─────────────────────────────────────────────────────────────
 # Main Agent Function
@@ -214,7 +220,6 @@ async def generate_report(
         }
     """
     vuln_count = len(recon_vulnerabilities)
-    attack_count = len(recon_attack_scenarios)
 
     # severity 분포 사전 계산 (프롬프트에 명시적으로 제공)
     severity_counts = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0}
@@ -228,22 +233,6 @@ async def generate_report(
     )
     vuln_text = json.dumps(recon_vulnerabilities, ensure_ascii=False, indent=2)
     attack_text = json.dumps(recon_attack_scenarios, ensure_ascii=False, indent=2)
-
-    if len(violations_text) > 3000:
-        logger.info(
-            f"⚠️ policy_violations 텍스트가 3000자 제한 초과 "
-            f"({len(violations_text)}자) — 프롬프트에서 잘림"
-        )
-    if len(recommendations_text) > 2000:
-        logger.info(
-            f"⚠️ policy_recommendations 텍스트가 2000자 제한 초과 "
-            f"({len(recommendations_text)}자) — 프롬프트에서 잘림"
-        )
-    if len(vuln_text) > 3000:
-        logger.info(
-            f"⚠️ recon_vulnerabilities 텍스트가 3000자 제한 초과 "
-            f"({len(vuln_text)}자) — 프롬프트에서 잘림"
-        )
 
     REPORTING_AGENT_PROMPT = """
 You must generate a comprehensive PreFlight security report.
@@ -300,20 +289,9 @@ REPORT FORMAT
 | 항목 | 결과 |
 |-----|-----|
 | Policy 위반 | X |
-| 발견된 취약점 | X |
-| Critical 위험 | X |
+| 발견된 취약점 | X (Critical: X, High: X, Medium: X, Low: X) |
+| 공격 시뮬레이션 시나리오 | X |
 | 아키텍처 재현 정확도 | XX% |
-
-## 위험 등급 판단 기준
-
-본 보고서의 위험 등급은 CVSS(Common Vulnerability Scoring System) 기반으로 분류됩니다.
-
-| 등급 | CVSS 범위 | 판단 기준 |
-|------|-----------|----------|
-| Critical | 9.0 – 10.0 | 인증 없이 원격 악용 가능, 데이터 유출·전체 시스템 장악, 시크릿/관리 인터페이스 공개 노출, 보안 통제 완전 우회 |
-| High | 7.0 – 8.9 | 제한된 전제 조건 하에서 악용 가능, 권한 상승·민감 데이터 노출, 보안 통제가 무력화 수준으로 약화, 암호화·인증 누락 |
-| Medium | 4.0 – 6.9 | 특정 조건 또는 내부 접근 필요, 제한적 데이터 노출·부분적 통제 우회, 보안 모범 사례 미준수(직접 공격 경로 없음), 설계 의도와의 구성 차이 |
-| Low | 0.1 – 3.9 | 정보 수준·심층 방어 개선 사항, 경미한 구성 편차, 직접적 악용 불가 |
 
 ---
 
@@ -372,7 +350,7 @@ Bicep 설계에 정의된 보안 통제를 검토합니다.
 | 보안 통제 재현 | X / Y |
 | 네트워크 재현 | X / Y |
 
-Overall Architecture Reproduction Fidelity: XX %
+전체 아키텍처 재현율: XX %
 
 ---
 
@@ -404,18 +382,23 @@ Overall Architecture Reproduction Fidelity: XX %
 
 ---
 
-# 5. 위험 우선순위
+# 5. 취약점 우선순위
 
-발견된 위험을 우선순위로 정리합니다.
+발견된 취약점을 우선순위로 정리합니다.
 
-| 위험 | 심각도 | 설명 |
+| 취약점 | 심각도 | 설명 |
 |------|--------|------|
 
-심각도:
+## 심각도 등급 판단 기준
 
-CRITICAL
-HIGH
-MEDIUM
+본 보고서의 심각도 등급은 CVSS(Common Vulnerability Scoring System) 기반으로 분류됩니다.
+
+| 등급 | CVSS 범위 | 판단 기준 |
+|------|-----------|----------|
+| Critical | 9.0 – 10.0 | 인증 없이 원격 악용 가능, 데이터 유출·전체 시스템 장악, 시크릿/관리 인터페이스 공개 노출, 보안 통제 완전 우회 |
+| High | 7.0 – 8.9 | 제한된 전제 조건 하에서 악용 가능, 권한 상승·민감 데이터 노출, 보안 통제가 무력화 수준으로 약화, 암호화·인증 누락 |
+| Medium | 4.0 – 6.9 | 특정 조건 또는 내부 접근 필요, 제한적 데이터 노출·부분적 통제 우회, 보안 모범 사례 미준수(직접 공격 경로 없음), 설계 의도와의 구성 차이 |
+| Low | 0.1 – 3.9 | 정보 수준·심층 방어 개선 사항, 경미한 구성 편차, 직접적 악용 불가 |
 
 ---
 
@@ -460,6 +443,37 @@ placeholder 없이 실제 코드로 작성할 것. 이 코드는 다운로드용
 ```bicep
 (원본 Bicep 코드에서 모든 보안 이슈를 수정한 완전한 코드)
 ```
+
+================================================
+OUTPUT FORMAT
+================================================
+
+You MUST return your response as a single JSON object (not wrapped in markdown code blocks).
+
+{{
+  "final_report": "<위 7개 섹션 + Appendix를 포함한 전체 마크다운 보고서. 줄바꿈은 \\n으로 이스케이프>",
+  "structured_data": {{
+    "vulnerability_summary": <int: 총 취약점 수>,
+    "verification_checklist": ["체크리스트 항목1", "항목2", ...],
+    "improved_bicep_code": "<Appendix의 개선된 Bicep 전체 코드>",
+    "reproduction_fidelity": <float 0-100 또는 null>,
+    "reproduction_details": {{
+      "리소스 재현": "X / Y",
+      "보안 통제 재현": "X / Y",
+      "네트워크 재현": "X / Y"
+    }},
+    "resource_reproduction": [
+      {{"resource": "리소스명", "docker_image": "이미지명", "status": "pass 또는 partial", "note": "상태 설명"}}
+    ],
+    "simulation_conclusion": "<섹션 4.3 시뮬레이션 결과 해석 내용>"
+  }}
+}}
+
+IMPORTANT:
+- final_report에는 위의 전체 마크다운 보고서(섹션 1~7 + Appendix)를 포함할 것.
+- 문자열 내 줄바꿈은 \\n으로, 따옴표는 \\"로 이스케이프할 것.
+- 값을 알 수 없는 경우: 숫자는 0 또는 null, 문자열은 빈 문자열, 배열은 빈 배열을 사용.
+- JSON 앞뒤에 다른 텍스트를 추가하지 말 것.
 """
 
     # Policy 결과 구성
@@ -498,7 +512,7 @@ placeholder 없이 실제 코드로 작성할 것. 이 코드는 다운로드용
             name="ReportingAgent",
             instructions=REPORTING_AGENT_INSTRUCTIONS,
             temperature=0.3,
-            max_tokens=8000,
+            max_tokens=16000,
         )
     except Exception as e:
         logger.error(f"❌ Reporting agent 초기화 실패: {e}", exc_info=True)
@@ -539,6 +553,7 @@ placeholder 없이 실제 코드로 작성할 것. 이 코드는 다운로드용
         "final_report": agent_response_text,
         "vulnerability_summary": vuln_count,
         "verification_checklist": checklist,
+        "structured_data": {},  # 빈 dict → 백엔드가 regex fallback 사용
     }
 
 
@@ -549,52 +564,90 @@ placeholder 없이 실제 코드로 작성할 것. 이 코드는 다운로드용
 
 def _extract_checklist_from_markdown(text: str) -> list[str]:
     """마크다운 보고서에서 Verification Checklist 항목 추출"""
-    # "Checklist" 섹션 이후의 번호 목록 또는 체크 목록 추출
     checklist = []
     in_checklist = False
+    past_table_header = False
     for line in text.split("\n"):
         lower = line.lower()
-        if "checklist" in lower and ("#" in line or "---" in lower):
+        if ("checklist" in lower or "체크리스트" in line) and (
+            "#" in line or "---" in lower
+        ):
             in_checklist = True
+            past_table_header = False
             continue
         if in_checklist:
             # 다음 섹션 시작 시 종료
             if line.startswith("#") or line.startswith("---"):
                 break
-            # 번호 목록 또는 체크 목록
             stripped = line.strip()
+            # 테이블 구분선 (|---|---| 등) 건너뛰기
+            if re.match(r"^\|[\s\-:]+\|", stripped):
+                past_table_header = True
+                continue
+            # 테이블 헤더 행 건너뛰기 (첫 번째 | 행)
+            if stripped.startswith("|") and not past_table_header:
+                past_table_header = False  # 다음 행이 구분선이면 처리됨
+                continue
+            # 테이블 행 파싱: | 항목 | 상태 |
+            if stripped.startswith("|") and past_table_header:
+                cells = [c.strip() for c in stripped.split("|")[1:-1]]
+                if cells and cells[0] and cells[0] != "-":
+                    checklist.append(cells[0])
+                continue
+            # 번호 목록 또는 체크 목록
             if re.match(r"^(\d+[\.\)]\s+|\-\s+|\*\s+|☐\s+|✅\s+)", stripped):
                 item = re.sub(
                     r"^(\d+[\.\)]\s+|\-\s+|\*\s+|☐\s+|✅\s+)", "", stripped
                 ).strip()
-                if item and "|" not in item:
+                if item:
                     checklist.append(item)
     return checklist
 
 
 def _parse_json_response(text: str) -> dict | None:
     """Agent 응답 텍스트에서 JSON 파싱 시도"""
+    parsed = None
+
     # ```json ... ``` 블록
     m = re.search(r"```json\s*\n(.*?)\n```", text, re.DOTALL)
     if m:
         try:
-            return json.loads(m.group(1).strip())
+            parsed = json.loads(m.group(1).strip())
         except json.JSONDecodeError:
             pass
 
     # final_report 키를 포함하는 JSON 객체
-    m = re.search(r'(\{[\s\S]*"final_report"[\s\S]*\})\s*$', text, re.DOTALL)
-    if m:
-        try:
-            return json.loads(m.group(1).strip())
-        except json.JSONDecodeError:
-            pass
+    if not parsed:
+        m = re.search(r'(\{[\s\S]*"final_report"[\s\S]*\})\s*$', text, re.DOTALL)
+        if m:
+            try:
+                parsed = json.loads(m.group(1).strip())
+            except json.JSONDecodeError:
+                pass
 
     # 전체 텍스트가 JSON인 경우
-    try:
-        return json.loads(text.strip())
-    except json.JSONDecodeError:
+    if not parsed:
+        try:
+            parsed = json.loads(text.strip())
+        except json.JSONDecodeError:
+            return None
+
+    if not parsed or "final_report" not in parsed:
         return None
+
+    # structured_data 키 보장
+    if "structured_data" not in parsed:
+        parsed["structured_data"] = {}
+
+    sd = parsed["structured_data"]
+
+    # top-level 필드 폴백 (structured_data에서 가져오기)
+    if "vulnerability_summary" not in parsed:
+        parsed["vulnerability_summary"] = sd.get("vulnerability_summary", 0)
+    if "verification_checklist" not in parsed:
+        parsed["verification_checklist"] = sd.get("verification_checklist", [])
+
+    return parsed
 
 
 def _fallback_report(
@@ -669,24 +722,12 @@ def _fallback_report(
 | 항목 | 결과 |
 |-----|-----|
 | Policy 위반 | {len(policy_violations)}건 |
-| 발견된 취약점 | {vuln_count}건 |
-| Critical 위험 | {severity_counts['Critical']}건 |
+| 발견된 취약점 | {vuln_count}건 (Critical: {severity_counts['Critical']}, High: {severity_counts['High']}, Medium: {severity_counts['Medium']}, Low: {severity_counts['Low']}) |
 | High 위험 | {severity_counts['High']}건 |
 | Medium 위험 | {severity_counts['Medium']}건 |
 | Low 위험 | {severity_counts['Low']}건 |
 | 공격 시뮬레이션 시나리오 | {len(recon_attack_scenarios)}건 |
 | 아키텍처 재현 정확도 | 데이터 부족으로 산출 불가 |
-
-## 위험 등급 판단 기준
-
-본 보고서의 위험 등급은 CVSS(Common Vulnerability Scoring System) 기반으로 분류됩니다.
-
-| 등급 | CVSS 범위 | 판단 기준 |
-|------|-----------|----------|
-| Critical | 9.0 – 10.0 | 인증 없이 원격 악용 가능, 데이터 유출·전체 시스템 장악, 시크릿/관리 인터페이스 공개 노출 |
-| High | 7.0 – 8.9 | 제한된 전제 조건 하에서 악용 가능, 권한 상승·민감 데이터 노출, 보안 통제 무력화 |
-| Medium | 4.0 – 6.9 | 특정 조건 또는 내부 접근 필요, 제한적 데이터 노출, 보안 모범 사례 미준수 |
-| Low | 0.1 – 3.9 | 정보 수준·심층 방어 개선 사항, 경미한 구성 편차, 직접적 악용 불가 |
 
 ---
 
@@ -724,7 +765,7 @@ def _fallback_report(
 |-----------|-----------|------------|------|
 | (에이전트 응답 실패) | - | - | 자동 분석 불가 |
 
-Overall Architecture Reproduction Fidelity: 데이터 부족으로 산출 불가
+전체 아키텍처 재현율: 데이터 부족으로 산출 불가
 
 ---
 
@@ -742,18 +783,30 @@ Overall Architecture Reproduction Fidelity: 데이터 부족으로 산출 불가
 
 ---
 
-# 5. 위험 우선순위
+# 5. 취약점 우선순위
 
-| 위험 | 심각도 | 설명 |
+| 취약점 | 심각도 | 설명 |
 |------|--------|------|
 {risk_rows}
+
+## 심각도 등급 판단 기준
+
+본 보고서의 심각도 등급은 CVSS(Common Vulnerability Scoring System) 기반으로 분류됩니다.
+
+| 등급 | CVSS 범위 | 판단 기준 |
+|------|-----------|----------|
+| Critical | 9.0 – 10.0 | 인증 없이 원격 악용 가능, 데이터 유출·전체 시스템 장악, 시크릿/관리 인터페이스 공개 노출 |
+| High | 7.0 – 8.9 | 제한된 전제 조건 하에서 악용 가능, 권한 상승·민감 데이터 노출, 보안 통제 무력화 |
+| Medium | 4.0 – 6.9 | 특정 조건 또는 내부 접근 필요, 제한적 데이터 노출, 보안 모범 사례 미준수 |
+| Low | 0.1 – 3.9 | 정보 수준·심층 방어 개선 사항, 경미한 구성 편차, 직접적 악용 불가 |
+
 
 ---
 
 # 6. 보안 강화 권고사항
 
 > 에이전트 응답 실패로 인해 자동 개선 코드가 생성되지 않았습니다.
-> 위 위험 우선순위 항목과 Policy 위반 내용을 참고하여 원본 Bicep 코드를 수동으로 검토하십시오.
+> 위 취약점 우선순위 항목과 Policy 위반 내용을 참고하여 원본 Bicep 코드를 수동으로 검토하십시오.
 
 ---
 
@@ -768,4 +821,13 @@ Overall Architecture Reproduction Fidelity: 데이터 부족으로 산출 불가
         "final_report": final_report,
         "vulnerability_summary": vuln_count,
         "verification_checklist": checklist,
+        "structured_data": {
+            "vulnerability_summary": vuln_count,
+            "verification_checklist": checklist,
+            "improved_bicep_code": "",
+            "reproduction_fidelity": None,
+            "reproduction_details": {},
+            "resource_reproduction": [],
+            "simulation_conclusion": "에이전트 응답 실패로 인해 자동 해석이 생성되지 않았습니다.",
+        },
     }
