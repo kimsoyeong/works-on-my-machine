@@ -29,9 +29,12 @@ LLM: Azure OpenAI (AsyncAzureOpenAI). env: AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_D
 
 import asyncio
 import json
+import logging
 import os
 import sys
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # works-on-my-machine 폴더를 기준으로 data 패키지 로드 (parent = agents, parent.parent = works-on-my-machine)
 _WORKS_ROOT = Path(__file__).resolve().parent.parent
@@ -61,6 +64,7 @@ async def _call_llm_json(system: str, user: str, model: str | None = None) -> di
     api_key = os.getenv("AZURE_OPENAI_API_KEY")
     api_version = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
     if not (endpoint and deployment_name and api_key):
+        logger.warning("⚠️ [Policy] LLM 환경변수 누락 — 호출 건너뜀")
         return None
 
     client = AsyncAzureOpenAI(
@@ -68,6 +72,7 @@ async def _call_llm_json(system: str, user: str, model: str | None = None) -> di
         api_version=api_version,
         azure_endpoint=endpoint.rstrip("/"),
     )
+    logger.info("🔄 [Policy] LLM 호출 시작")
     try:
         resp = await client.chat.completions.create(
             model=model or deployment_name,
@@ -77,13 +82,16 @@ async def _call_llm_json(system: str, user: str, model: str | None = None) -> di
             ],
         )
     except Exception as e:
+        logger.error(f"❌ [Policy] LLM 호출 실패: {e!s}")
         raise RuntimeError(f"LLM 호출 실패: {e!s}") from e
+    logger.info("✅ [Policy] LLM 응답 수신")
     text = (resp.choices[0].message.content or "").strip()
     for raw in (text, text.replace("```json", "").replace("```", "").strip()):
         try:
             return json.loads(raw)
         except json.JSONDecodeError:
             continue
+    logger.warning("⚠️ [Policy] LLM 응답 JSON 파싱 실패")
     return None
 
 
@@ -200,7 +208,9 @@ Bicep 코드:
         return []
     # 유효한 CAT-001~005만
     valid = [x for x in out["category_ids"] if isinstance(x, str) and x in _CAT_001_TO_005_IDS]
-    return list(dict.fromkeys(valid))  # 순서 유지, 중복 제거
+    result = list(dict.fromkeys(valid))  # 순서 유지, 중복 제거
+    logger.info(f"📂 [Policy] AI 카테고리 선별 결과: {result}")
+    return result
 
 
 def _load_reference_bicep() -> list[dict]:
@@ -253,7 +263,10 @@ async def handle_design_review(
     """
     from data.rag import search
 
+    logger.info("🔍 [Policy] 설계 검토 시작")
+
     def _err(reason: str) -> dict:
+        logger.error(f"❌ [Policy] {reason}")
         return {
             "status": "error",
             "error": reason,
@@ -330,6 +343,8 @@ async def handle_design_review(
             )
     except Exception as e:
         return _err(f"정책 RAG 검색 실패: {e}")
+
+    logger.info(f"📚 [Policy] RAG 검색 완료: {len(merged)}개 정책 청크 (카테고리: {categories_to_use})")
 
     # 3) LLM으로 사용자 Bicep 검토: 위반/권장 (허용 rule_id만 사용, severity는 정책 데이터 기준)
     allowed_list = ", ".join(sorted(allowed_rule_ids)) if allowed_rule_ids else "(없음 - manifest.json에서 status=active 문서 확인)"
@@ -441,6 +456,8 @@ async def handle_design_review(
         result_message = f"정책 검증완료. 위반 없음, 권장 {n_r}개."
     else:
         result_message = f"정책 검증완료. 위반 {n_v}개, 권장 {n_r}개."
+
+    logger.info(f"✅ [Policy] 설계 검토 완료: 위반 {n_v}개, 권장 {n_r}개 (status={status})")
 
     return {
         "status": status,
