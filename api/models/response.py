@@ -30,11 +30,17 @@ class SecurityResult(BaseModel):
     verification_checklist: list[str] = []
     attack_scenarios: list[AttackScenario] = []
     reproduction_fidelity: float | None = None  # Bicep → Docker 재현율 (0~100)
+    reproduction_details: dict = {}  # {"리소스 재현": "X / Y", "보안 통제 재현": "X / Y", "네트워크 재현": "X / Y"}
+    resource_reproduction: list[dict] = []  # 리소스별 Docker 재현 현황 [{resource, docker_image, status, note}]
+    vulnerabilities: list[dict] = []  # 개별 취약점 상세 목록
+    simulation_conclusion: str = ""  # 공격 시뮬레이션 분석 결론 (섹션 4.3)
 
 
 class PolicySummary(BaseModel):
     violations: int = 0
     recommendations: int = 0
+    violation_details: list[dict] = []
+    recommendation_details: list[dict] = []
 
 class AnalyzeResponse(BaseModel):
     status: str  # success / error
