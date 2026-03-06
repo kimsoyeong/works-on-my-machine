@@ -61,6 +61,7 @@ INTERNAL RULES (DO NOT PRINT):
 - 조건부 문장 규칙 위반 시 보고서 전체를 무효로 간주
 """
 
+
 # ─────────────────────────────────────────────────────────────
 # Main Agent Function
 # ─────────────────────────────────────────────────────────────
@@ -165,8 +166,8 @@ REPORT FORMAT (STRICT TEMPLATE)
 
 | 등급 | 건수 | 주요 발견 항목 |
 |------|------|----------------|
-| 🔴 Critical | {severity_counts['Critical']} | (Critical 취약점 제목들을 콤마로 나열, 없으면 "-") |
-| 🔶 High     | {severity_counts['High']}     | (High 취약점 제목들을 콤마로 나열, 없으면 "-") |
+| 🚨 Critical | {severity_counts['Critical']} | (Critical 취약점 제목들을 콤마로 나열, 없으면 "-") |
+| ⚠️ High     | {severity_counts['High']}     | (High 취약점 제목들을 콤마로 나열, 없으면 "-") |
 | 🔷 Medium   | {severity_counts['Medium']}   | (Medium 취약점 제목들을 콤마로 나열, 없으면 "-") |
 | 🟢 Low      | {severity_counts['Low']}      | (Low 취약점 제목들을 콤마로 나열, 없으면 "-") |
 
@@ -189,18 +190,18 @@ REPORT FORMAT (STRICT TEMPLATE)
 
 | 보안 통제 항목 | Bicep 설정값 / 의도 | Docker Compose 상태 | 위험도 | 평가 |
 |----------------|---------------------|--------------------|--------|------|
-| Key Vault networkAcls defaultAction | (실제 값 또는 미설정) | 유지 / 약화 / 미적용 | 🔴 / 🔶 / 🔷 / 🟢 | (구체적 분석) |
-| Storage allowBlobPublicAccess | (실제 값 또는 미설정) | 유지 / 약화 / 미적용 | 🔴 / 🔶 / 🔷 / 🟢 | (구체적 분석) |
-| TLS 최소 버전 | (실제 값 또는 미설정) | 유지 / 약화 / 미적용 | 🔴 / 🔶 / 🔷 / 🟢 | (구체적 분석) |
-| HTTPS Only | (실제 값 또는 미설정) | 유지 / 약화 / 미적용 | 🔴 / 🔶 / 🔷 / 🟢 | (구체적 분석) |
-| Private Endpoint | (사용 여부) | 유지 / 약화 / 미적용 | 🔴 / 🔶 / 🔷 / 🟢 | (구체적 분석) |
-| Private DNS Zone | (사용 여부) | 유지 / 약화 / 미적용 | 🔴 / 🔶 / 🔷 / 🟢 | (구체적 분석) |
-| Soft Delete + Purge Protection | (활성화 여부) | 유지 / 약화 / 미적용 | 🔴 / 🔶 / 🔷 / 🟢 | (구체적 분석) |
+| Key Vault networkAcls defaultAction | (실제 값 또는 미설정) | 유지 / 약화 / 미적용 | 🚨 / ⚠️ / 🔷 / 🟢 | (구체적 분석) |
+| Storage allowBlobPublicAccess | (실제 값 또는 미설정) | 유지 / 약화 / 미적용 | 🚨 / ⚠️ / 🔷 / 🟢 | (구체적 분석) |
+| TLS 최소 버전 | (실제 값 또는 미설정) | 유지 / 약화 / 미적용 | 🚨 / ⚠️ / 🔷 / 🟢 | (구체적 분석) |
+| HTTPS Only | (실제 값 또는 미설정) | 유지 / 약화 / 미적용 | 🚨 / ⚠️ / 🔷 / 🟢 | (구체적 분석) |
+| Private Endpoint | (사용 여부) | 유지 / 약화 / 미적용 | 🚨 / ⚠️ / 🔷 / 🟢 | (구체적 분석) |
+| Private DNS Zone | (사용 여부) | 유지 / 약화 / 미적용 | 🚨 / ⚠️ / 🔷 / 🟢 | (구체적 분석) |
+| Soft Delete + Purge Protection | (활성화 여부) | 유지 / 약화 / 미적용 | 🚨 / ⚠️ / 🔷 / 🟢 | (구체적 분석) |
 
 ### Risk Legend
 
-- 🔴 **Critical** — 원본 설계의 핵심 보안 통제가 완전히 제거됨  
-- 🔶 **High** — 통제가 약화되어 공격 가능성 증가  
+- 🚨 **Critical** — 원본 설계의 핵심 보안 통제가 완전히 제거됨  
+- ⚠️ **High** — 통제가 약화되어 공격 가능성 증가  
 - 🔷 **Medium** — 일부 기능은 유지되지만 완전하지 않음  
 - 🟢 **Low / Preserved** — 원본 보안 설계가 대부분 유지됨
 
@@ -218,7 +219,7 @@ REPORT FORMAT (STRICT TEMPLATE)
 - **원본 의도**: 원본 설계에서 의도한 통제 내용
 - **변환 후 상태**: 변환 이후 통제 상태
 - **불일치 설명**: If deployed without equivalent controls, this may increase exposure to...
-- **위험 등급**: 🔴 Critical / 🔶 High / 🔷 Medium / 🟢 Low
+- **위험 등급**: 🚨 Critical / ⚠️ High / 🔷 Medium / 🟢 Low
 
 (policy violations와 recon vulnerabilities 기반으로 실제 불일치 항목 반복 작성)
 
@@ -238,7 +239,7 @@ REPORT FORMAT (STRICT TEMPLATE)
 ### SCN-XXX: [objective 내용]
 - **MITRE**: (mitre_technique)
 - **대상**: (container)
-- **위험도**: 🔴/🔶/🔷/🟢
+- **위험도**: 🚨/⚠️/🔷/🟢
 - **보안 발견**: (security_finding — 조건부 표현 사용)
 
 ---
@@ -455,8 +456,8 @@ def _fallback_report(
 
 | 등급 | 건수 | 주요 발견 항목 |
 |------|------|----------------|
-| 🔴 Critical | {severity_counts['Critical']} | {critical_titles} |
-| 🔶 High     | {severity_counts['High']}     | {high_titles} |
+| 🚨 Critical | {severity_counts['Critical']} | {critical_titles} |
+| ⚠️ High     | {severity_counts['High']}     | {high_titles} |
 | 🔷 Medium   | {severity_counts['Medium']}   | {medium_titles} |
 | 🟢 Low      | {severity_counts['Low']}      | - |
 
@@ -480,18 +481,18 @@ def _fallback_report(
 
 | 보안 통제 항목 | Bicep 설정값 / 의도 | Docker Compose 상태 | 위험도 | 평가 / 비고 |
 |----------------|---------------------|--------------------|--------|-------------|
-| Key Vault networkAcls defaultAction | Deny | 미확인 | 🔶 | Docker 네트워크 정책 또는 내부 네트워크 격리로 대응 필요 |
-| Storage allowBlobPublicAccess | false | 미확인 | 🔶 | 컨테이너 볼륨 권한 또는 접근 제어 설정 필요 |
-| TLS 최소 버전 | TLS1_2 | 미확인 | 🔶 | 컨테이너 서비스 TLS 설정으로 강제 필요 |
-| HTTPS Only | true | 미확인 | 🔶 | 서비스 레벨 HTTPS 리디렉션 또는 TLS termination 필요 |
-| Private Endpoint | 사용 여부 미확인 | 미확인 | 🔴 | 내부 Docker 네트워크 또는 private service 구성 필요 |
+| Key Vault networkAcls defaultAction | Deny | 미확인 | ⚠️ | Docker 네트워크 정책 또는 내부 네트워크 격리로 대응 필요 |
+| Storage allowBlobPublicAccess | false | 미확인 | ⚠️ | 컨테이너 볼륨 권한 또는 접근 제어 설정 필요 |
+| TLS 최소 버전 | TLS1_2 | 미확인 | ⚠️ | 컨테이너 서비스 TLS 설정으로 강제 필요 |
+| HTTPS Only | true | 미확인 | ⚠️ | 서비스 레벨 HTTPS 리디렉션 또는 TLS termination 필요 |
+| Private Endpoint | 사용 여부 미확인 | 미확인 | 🚨 | 내부 Docker 네트워크 또는 private service 구성 필요 |
 | Private DNS Zone | 사용 여부 미확인 | 미확인 | 🔷 | Docker 내부 DNS 또는 service name resolution으로 일부 대체 가능 |
 | Soft Delete + Purge Protection | 활성화 여부 미확인 | 미적용 | 🔷 | 클라우드 전용 기능으로 로컬 환경에서는 직접 대응 구조 부재 가능 |
 
 ### Risk Legend
 
-- 🔴 **Critical** — 원본 설계의 핵심 보안 통제가 완전히 제거됨  
-- 🔶 **High** — 통제가 약화되어 공격 가능성 증가  
+- 🚨 **Critical** — 원본 설계의 핵심 보안 통제가 완전히 제거됨  
+- ⚠️ **High** — 통제가 약화되어 공격 가능성 증가  
 - 🔷 **Medium** — 일부 기능은 유지되지만 완전하지 않음  
 - 🟢 **Low / Preserved** — 원본 보안 설계가 대부분 유지됨
 
