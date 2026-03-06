@@ -948,16 +948,16 @@ Use the mapping table below as the primary reference. If a resource type is NOT 
 |---|---|---|
 | Microsoft.Web/sites (App Service) | Custom app image or `nginx:1` | Use build context if app code path is inferrable |
 | Microsoft.Web/sites (Function App) | `mcr.microsoft.com/azure-functions/dotnet:4` (or `/node:4`, `/python:4`) | Choose runtime-matching image; mount function code as volume; MUST set `platform: linux/amd64` (amd64 only) |
-| Microsoft.Sql/servers + databases | `mcr.microsoft.com/mssql/server:2022-latest` | SA password via env var, MUST set `platform: linux/amd64` |
+| Microsoft.Sql/servers + databases | `mcr.microsoft.com/mssql/server:2022-latest` | MUST set `platform: linux/amd64`; env: `ACCEPT_EULA=Y`, `MSSQL_SA_PASSWORD=YourStrong!Passw0rd`, `MSSQL_PID=Developer` |
 | Microsoft.DBforPostgreSQL/flexibleServers | `postgres:16-alpine` | Init scripts via `/docker-entrypoint-initdb.d/` |
 | Microsoft.DBforMySQL/flexibleServers | `mysql:8` or `mariadb:11` | |
-| Microsoft.DocumentDB/databaseAccounts (Cosmos DB) | **SQL API**: `mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview`; **MongoDB API**: `mongo:7` | Cosmos emulator needs 2GB+ RAM |
+| Microsoft.DocumentDB/databaseAccounts (Cosmos DB) | **SQL API**: `mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview`; **MongoDB API**: `mongo:7` | Cosmos emulator needs 2GB+ RAM; env: `AZURE_COSMOS_EMULATOR_PARTITION_COUNT=1`, `AZURE_COSMOS_EMULATOR_IP_ADDRESS_OVERRIDE=127.0.0.1` (emulator key is auto-generated, do NOT set COSMOS_EMULATOR_KEY) |
 | Microsoft.Cache/redis | `redis:7-alpine` | |
 | Microsoft.Storage/storageAccounts | `mcr.microsoft.com/azure-storage/azurite:3` | Blob, Queue, Table emulation |
 | Microsoft.ServiceBus/namespaces | `rabbitmq:3-management` | Map queues/topics → RabbitMQ exchanges |
 | Microsoft.EventHub/namespaces | `bitnami/kafka:3` (KRaft mode preferred) | Map Event Hub → Kafka topic |
 | Microsoft.EventGrid/topics | `rabbitmq:3-management` with topic exchange | Document behavioral differences |
-| Microsoft.KeyVault/vaults | Plain `.env` file or `hashicorp/vault:1` | Secrets → env vars for simplicity |
+| Microsoft.KeyVault/vaults | `hashicorp/vault:1` in dev mode | env: `VAULT_DEV_ROOT_TOKEN_ID=root`, `VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200`; do NOT reference external secret variables |
 | Microsoft.ContainerRegistry/registries | `registry:2` | Only if registry is actively used |
 | Microsoft.Network/virtualNetworks | docker compose `networks:` | Map subnets → named networks |
 | Microsoft.Network/applicationGateways | `nginx:1` or `traefik:v3` reverse proxy | Replicate routing rules |
@@ -1004,7 +1004,9 @@ The docker-compose.yml must satisfy:
 - Header comment block: original Bicep source summary, resource-to-service mapping overview, .env variables needed with example values, known limitations, and startup instructions.
 - Services grouped by tier: Application → Data → Infrastructure → Observability.
 - `depends_on` with `condition: service_healthy` where health checks are defined.
-- Secrets referenced via `${VARIABLE}` pointing to a `.env` file (never hardcode credentials; use safe defaults in comments).
+- Secrets MUST use hardcoded safe default values directly in the YAML — NEVER use `${VARIABLE}` syntax.
+  This is a local security simulation environment; all credentials must be directly embedded so `docker compose up` works without any .env file.
+  Use these defaults: passwords → `YourStrong!Passw0rd`, tokens → `root`, generic secrets → `devSecretValue123`.
 - Inline YAML comments (`#`) on each service explaining which Azure resource it replaces.
 - `networks:` and `volumes:` sections as needed. (Do NOT use `configs:` — Swarm-only.)
 - For resources with NO reasonable local equivalent, add a comment block: `# ⚠ NOT EMULATED: <resource> — Reason: <explanation>`.
@@ -1042,6 +1044,50 @@ def extract_compose_yaml(response: str) -> str:
     """응답에서 docker-compose.yml YAML 블록만 추출"""
     match = re.search(r"```ya?ml\n(.*?)```", response, re.DOTALL)
     return match.group(1).strip() if match else response
+
+
+# LLM이 프롬프트를 무시하고 ${VARIABLE} 참조를 생성할 경우를 대비한 기본값 매핑
+_COMPOSE_VAR_DEFAULTS = {
+    "COSMOS_EMULATOR_KEY": "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==",
+    "ADMIN_PASSWORD": "YourStrong!Passw0rd",
+    "SA_PASSWORD": "YourStrong!Passw0rd",
+    "MSSQL_SA_PASSWORD": "YourStrong!Passw0rd",
+    "SQLSERVER_SA_PASSWORD": "YourStrong!Passw0rd",
+    "KV_SECRET_SAMPLE": "devSecretValue123",
+    "VAULT_TOKEN": "root",
+    "MYSQL_ROOT_PASSWORD": "YourStrong!Passw0rd",
+    "POSTGRES_PASSWORD": "YourStrong!Passw0rd",
+}
+
+
+def resolve_unset_compose_variables(compose_yaml: str) -> str:
+    """LLM이 생성한 YAML에서 미설정 ${VARIABLE} 참조를 안전한 기본값으로 대체"""
+
+    def _replace(match: re.Match) -> str:
+        var_name = match.group(1)
+        if var_name in _COMPOSE_VAR_DEFAULTS:
+            logger.warning(
+                f"⚠️ Replacing unset variable ${{{var_name}}} with default value"
+            )
+            return _COMPOSE_VAR_DEFAULTS[var_name]
+        # 알 수 없는 변수는 generic default 사용
+        logger.warning(
+            f"⚠️ Replacing unknown variable ${{{var_name}}} with generic default"
+        )
+        return f"default_{var_name}"
+
+    resolved = re.sub(r"\$\{(\w+)\}", _replace, compose_yaml)
+    return resolved
+
+
+def fix_compose_yaml_syntax(compose_yaml: str) -> str:
+    """LLM이 생성한 YAML에서 Docker Compose가 허용하지 않는 키를 수정"""
+    # 'platforms' (복수형) → 'platform' (단수형)
+    # Docker Compose는 서비스 레벨에서 'platform' (단수)만 허용
+    fixed = re.sub(r"^(\s*)platforms:", r"\1platform:", compose_yaml, flags=re.MULTILINE)
+    if fixed != compose_yaml:
+        logger.warning("⚠️ Fixed 'platforms' → 'platform' in generated compose YAML")
+    return fixed
 
 
 async def _convert_bicep_to_compose(
@@ -1103,6 +1149,8 @@ All architecture analysis, usage notes, .env templates, and limitations must be 
     logger.info(f"LLM 출력 원본: {raw_text}")
 
     compose_yaml = extract_compose_yaml(raw_text)
+    compose_yaml = resolve_unset_compose_variables(compose_yaml)
+    compose_yaml = fix_compose_yaml_syntax(compose_yaml)
 
     # 프로젝트 루트에 docker-compose.yml 저장
     root = Path(project_root) if project_root else Path.cwd()
