@@ -152,7 +152,7 @@ if isinstance(prerequisites, list):
 📊 Vulnerabilities: 10
 ⚡ Attack scenarios: 10
 
-🔴 Sample Vulnerability:
+🚨 Sample Vulnerability:
    - ID: VULN-001
    - Title: Hardcoded Weak Credentials
    - Severity: CRITICAL
@@ -210,7 +210,7 @@ if isinstance(prerequisites, list):
 ## 🚀 Phase 1: 배포 결과
 [컨테이너 목록 및 포트 정보]
 
-## 🔴 Phase 2: Red Team 공격 결과
+## 🚨 Phase 2: Red Team 공격 결과
 [수행된 공격 및 발견사항]
 
 ## 🔍 발견된 취약점
@@ -642,3 +642,160 @@ Low │ [LOW]   │ [MED]      │
 **해결**:
 - `AttackScenario` 인터페이스 추가 (백엔드 dataclass 필드와 일치)
 - `SecurityResult`에 `attack_scenarios: AttackScenario[]` 추가
+
+---
+
+# 프론트엔드 UI 전면 리디자인 (2026-03-07)
+
+## [FEAT] 디자인 시스템 구축
+
+- 인라인 스타일 + CSS Custom Properties(`--pf-*`) 기반 테마 시스템
+- 보라색 (`#6C3AED`) 앱 액센트, 페이지 배경 `#f8f9fb`
+- 타이포그래피: Outfit (제목), DM Sans (본문), DM Mono/JetBrains Mono (코드)
+
+## [FEAT] 화면 플로우 3단계 구현 (`MainContent.tsx`)
+
+**idle → analyzing → completed** 화면 전환 (Framer Motion 애니메이션)
+
+### Idle 화면
+- 히어로 섹션: 레이더 로고 + "아키텍처 보안 검증" 타이틀
+- `UploadCard`: Claude 스타일 채팅 입력 카드 (드래그&드롭, 이미지 미리보기, 스캔라인 오버레이)
+
+### Analyzing 화면 (`AnalyzingProgress`)
+- 레이더 sweep 애니메이션 히어로
+- 5단계 수직 타임라인 (세로선 연결)
+- `StepIcon`: 상태별 아이콘 + 단계별 고유 아이콘
+  - 아키텍처 업로드: ↑ 업로드 화살표
+  - IaC 템플릿 변환: `</>` 코드 브래킷
+  - 보안 정책 검증 / 위협 시나리오 정찰: 🤖 로봇 (AI 에이전트)
+  - 보고서 생성: 📄 문서
+- 병렬 실행 그룹 박스 (보안 정책 검증 + 위협 시나리오 정찰)
+- 전체 진행률 바 + 단계 라벨
+- 업로드 완료 시 이미지 미리보기 토글
+
+### Completed 화면
+- 파이프라인 미니맵 → 결과 대시보드 → 상세 보고서 탭
+
+## [FEAT] 파이프라인 미니맵 리디자인 (`PipelineBar.tsx`)
+
+**이전**: SVG 이모지 노드 기반 레이아웃
+**이후**: 미니멀 HTML 칩 레이아웃
+
+- `StepChip`: 28×28px 아이콘 박스 + 라벨 (상태별 색상, 단계별 고유 아이콘)
+- `Arrow`: SVG 화살표 커넥터 (40×10px)
+- Fork/Merge SVG 분기·합류선 (병렬 단계용)
+- 경과 시간: `position: absolute` 우측 배치, 파이프라인은 정중앙
+- 둥근 카드 (`borderRadius: 14px`) 안에 배치
+
+## [FEAT] 보안 대시보드 (`ResultSummary.tsx`)
+
+5개 카드 그리드 (3열 × 2행):
+
+| 카드 | 내용 |
+|------|------|
+| 보안 등급 (2행 span) | A~F 등급, 270° 아크 게이지 차트, 등급 기준 hover 팝오버 |
+| 정책 위반 | 위반/권고 건수, 컬러 비율 바 |
+| 발견 취약점 | Critical/High/Medium/Low 분포 바 |
+| 위협 시나리오 | 침투 성공/부분/차단 분류 |
+| 아키텍처 재현율 | 퍼센트 + 카테고리별 진행 바 |
+
+- 재검증 시 이전 결과 대비 델타(↑↓) `DeltaPill` 표시
+- 경고 배너: score < 60 또는 Critical/High 취약점 존재 시 자동 표시
+- "상세 보기 >" 클릭 → 해당 보고서 서브탭으로 자동 스크롤
+
+**보안 등급 산정**: 정책 준수 65점 + 취약점 35점 × 재현 신뢰도, 100점 정규화
+
+## [FEAT] 상세 보고서 탭 (`ResultTabs.tsx`)
+
+메인 탭: 📋 보고서 / ⚙ 개선된 Bicep
+
+보고서 6개 서브탭:
+- 정책 준수 검토: 위반/권고 테이블
+- 보안 통제 검토: 통제 항목별 적용 여부 (✓/✗/◐)
+- 취약점 우선순위: 심각도 필터 pill + 취약점 테이블
+- 위협 시뮬레이션: 공격 결과 테이블 + 분석 결론 마크다운
+- 아키텍처 재현: Docker 재현 테이블 + 재현 점수 상세
+- 검증 체크리스트: 항목별 통과/수정필요 상태
+
+Bicep 탭: 구문 하이라이팅 (react-syntax-highlighter/oneDark), 접기/펼치기, "개선된 Bicep으로 재검증" 버튼
+
+## [FEAT] 헤더 상태 표시 (`App.tsx`)
+
+- `analyzing` 상태: "에이전트 실행 중" 펄스 배지 + 경과 시간 + "분석 취소" 버튼
+- `completed` 상태: "＋ 새 분석" 버튼
+- Ambient 배경: 그라데이션 원형 + 도트 그리드 패턴
+
+## [FEAT] Zustand 스토어 확장 (`store/app.ts`)
+
+- `previousResult`: 재검증 시 이전 결과 저장 (델타 비교용)
+- `elapsedSeconds`: 분석 완료 시 소요 시간 기록
+- `reportSection`: 보고서 활성 서브탭 상태
+
+## [FEAT] API 타입 확장 (`types/api.ts`)
+
+- `PolicyViolation`, `VulnerabilityItem`, `ResourceReproduction` 인터페이스 추가
+- `SecurityResult`: `reproduction_details`, `resource_reproduction`, `vulnerabilities`, `simulation_conclusion` 필드 추가
+- `PolicySummary`: `violation_details`, `recommendation_details` 필드 추가
+
+---
+
+# 백엔드 API 응답 구조 고도화 (2026-03-07)
+
+## [FEAT] 응답 모델 필드 확장 (`api/models/response.py`)
+
+- `SecurityResult`에 프론트엔드 대시보드용 필드 추가:
+  - `reproduction_details: dict` — 리소스/보안통제/네트워크 재현 세부 점수
+  - `resource_reproduction: list[dict]` — 리소스별 Docker 재현 현황
+  - `vulnerabilities: list[dict]` — 개별 취약점 상세 목록
+  - `simulation_conclusion: str` — 공격 시뮬레이션 분석 결론
+- `PolicySummary`에 상세 데이터 필드 추가:
+  - `violation_details: list[dict]` — 위반 상세 목록
+  - `recommendation_details: list[dict]` — 권고 상세 목록
+
+## [FEAT] .bicep 파일 passthrough (`api/common/services/bicep_transformer.py`)
+
+**문제**: 재검증 시 개선된 Bicep 코드를 다시 업로드하면 이미지→Bicep 변환을 시도
+**해결**: `.bicep` 확장자 파일은 변환 건너뛰고 내용 그대로 반환
+
+## [REFACTOR] 보고서 에이전트 개선 (`agents/reporting_agent.py`)
+
+### 프롬프트 개선
+- JSON 출력 형식 명세 추가 (`final_report` + `structured_data` 키)
+- "위험 우선순위" → "취약점 우선순위" 용어 통일
+- CVSS 등급 기준표를 섹션 5로 이동 (섹션 1 Executive Summary에서 제거)
+- "Overall Architecture Reproduction Fidelity" → "전체 아키텍처 재현율"
+- `max_tokens` 8000 → 16000 상향
+
+### 파싱 개선
+- `_parse_json_response`: `structured_data` 키 보장, top-level 필드 폴백
+- `_extract_checklist_from_markdown`: 마크다운 테이블 형식 파싱 지원 추가
+- `_fallback_report`에 `structured_data` 기본값 포함
+- 불필요한 텍스트 길이 경고 로그 제거
+
+## [FEAT] 보고서 데이터 추출 및 응답 빌더 (`api/routers/analyze.py`)
+
+- `.bicep` 파일 업로드 허용 (`ALLOWED_EXTENSIONS`에 추가)
+- 보고서 마크다운에서 구조화 데이터 추출하는 함수 신규:
+  - `_extract_reproduction_details()`: 재현 세부 점수 (리소스/보안통제/네트워크)
+  - `_extract_resource_reproduction()`: 리소스별 Docker 재현 테이블 파싱
+  - `_extract_simulation_conclusion()`: 시뮬레이션 결과 해석 텍스트
+- `_build_security_result()` 헬퍼: `structured_data` 우선, regex fallback
+- `PolicySummary` 응답에 `violation_details`, `recommendation_details` 포함
+- REST(`/analyze`)·SSE(`/analyze/stream`) 양쪽 엔드포인트에 동일 적용
+
+---
+
+# 기타 (2026-03-07)
+
+## [CHORE] `.gitignore` 정리
+
+- `node_modules/`, `.vite/` 추가 (프론트엔드 빌드 캐시)
+- `.claude/`, `.github/`, `nginx-config/` 추가
+- `ssl_certs/` 중복 제거
+
+## [DOCS] `FRONTEND.md` 현행화
+
+- 기술 스택: 실제 사용 라이브러리 반영 (Framer Motion, react-markdown 등)
+- 디렉토리 구조, 컴포넌트 상세, 화면 플로우 ASCII 레이아웃
+- 디자인 시스템: 컬러 팔레트, 타이포그래피, CSS 토큰, 애니메이션 목록
+- API 통신: SSE 이벤트 타입, Zustand 상태 인터페이스

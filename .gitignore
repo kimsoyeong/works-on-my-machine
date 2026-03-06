@@ -20,12 +20,18 @@ build/
 .coverage
 htmlcov/
 
+# Node / Frontend
+node_modules/
+.vite/
+
 # OS
 .DS_Store
 Thumbs.db
 
 # LLM
 CLAUDE.md
+.claude/
+.github/
 
 # etc
 example/
@@ -35,8 +41,16 @@ ssl_certs/
 *.key
 *.conf
 webapp-content/
+ssl_certs/
 log.txt
+nginx-config/
 
 *.yml
 *.bin
 *.sqlite3
+
+myenv/
+myvenv/
+mvenv/
+venv/
+bomin/
