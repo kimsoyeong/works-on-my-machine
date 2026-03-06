@@ -729,17 +729,22 @@ OUTPUT (STRICT JSON ONLY)
 Your FINAL response must be ONLY a JSON object.
 No markdown. No explanations. No prefix. No suffix.
 
+IMPORTANT LANGUAGE REQUIREMENT:
+- "title", "description", "evidence", "remediation" fields MUST be written in Korean.
+- "objective", "security_finding" fields MUST be written in Korean.
+- Technical terms (TLS, RBAC, Key Vault, NSG, etc.) may remain in English within Korean text.
+
 {
   "vulnerabilities": [
     {
       "id": "RISK-001",
-      "title": "...",
+      "title": "하드코딩된 기본 자격 증명",
       "severity": "Critical/High/Medium/Low",
       "category": "...",
       "affected_resource": "...",
-      "description": "...",
-      "evidence": "...",
-      "remediation": "...",
+      "description": "데이터베이스에 기본 자격 증명이 하드코딩되어 있어 인증 없이 접근 가능합니다.",
+      "evidence": "환경 변수에서 평문 비밀번호 'admin123'이 확인되었습니다.",
+      "remediation": "Azure Key Vault를 사용하여 자격 증명을 안전하게 관리하십시오.",
       "benchmark_ref": "N/A"
     }
   ],
@@ -749,10 +754,10 @@ No markdown. No explanations. No prefix. No suffix.
       "mitre_technique": "...",
       "severity": "Critical/High/Medium/Low",
       "container": "...",
-      "objective": "...",
+      "objective": "기본 자격 증명을 이용한 데이터베이스 무단 접근",
       "executed_command": "...",
       "command_output": "...",
-      "security_finding": "..."
+      "security_finding": "기본 자격 증명으로 데이터베이스에 성공적으로 접근하여 민감 데이터 노출이 확인되었습니다."
     }
   ],
   "vulnerability_summary": {
@@ -892,17 +897,22 @@ If you have fewer than 3 per container, you have not tested enough. Go back and 
 # FINAL OUTPUT:
 Your final response MUST be ONLY a valid JSON object with EXACTLY this structure:
 
+## IMPORTANT LANGUAGE REQUIREMENT:
+- For "vulnerabilities" fields, "title", "description", "evidence", "remediation" fields MUST be written in Korean.
+- For "attack_scenarios" fields, "objective", "security_finding" fields MUST be written in Korean.
+- Technical terms (TLS, RBAC, Key Vault, NSG, etc.) may remain in English within Korean text.
+
 {{
   "vulnerabilities": [
     {{
       "id": "RISK-001",
-      "title": "string",
+      "title": "string", # in Korean
       "severity": "Critical|High|Medium|Low",
       "category": "string",
       "affected_resource": "string",
-      "description": "string",
-      "evidence": "string",
-      "remediation": "string",
+      "description": "string", # in Korean
+      "evidence": "string", # in Korean
+      "remediation": "string", # in Korean
       "benchmark_ref": "string"
     }}
   ],
@@ -912,10 +922,10 @@ Your final response MUST be ONLY a valid JSON object with EXACTLY this structure
       "mitre_technique": "string",
       "severity": "Critical|High|Medium|Low",
       "container": "string",
-      "objective": "string",
+      "objective": "string", # in Korean
       "executed_command": "string",
       "command_output": "string",
-      "security_finding": "string"
+      "security_finding": "string" # in Korean
     }}
   ],
   "vulnerability_summary": {{
