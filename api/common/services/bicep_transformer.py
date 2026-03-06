@@ -155,6 +155,11 @@ async def transform_image_to_bicep(file_content: bytes, filename: str) -> str:
     - AI Foundry가 설정되어 있고, 파일이 이미지이면 Foundry 비전 LLM으로 변환.
     - 그 외(설정 없음, 비이미지, LLM 실패)는 기존처럼 샘플 Bicep을 반환합니다.
     """
+    # .bicep 파일이면 내용을 그대로 반환 (변환 불필요)
+    if filename and filename.lower().endswith('.bicep'):
+        logger.info("✅ Bicep file detected, passing through directly: %s", filename)
+        return file_content.decode('utf-8')
+
     # 이미지이고 Foundry 사용 가능하면 LLM 호출
     logger.info("✅ Image to Bicep transformation started for file: %s", filename)
 
